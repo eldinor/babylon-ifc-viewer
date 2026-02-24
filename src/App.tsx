@@ -3,6 +3,7 @@ import "./App.css";
 import BabylonScene, { type IfcModelData } from "./components/BabylonScene";
 import { getBuildingStoreys, formatElevation, type StoreyInfo, getSite, type SiteInfo } from "./utils/ifcUtils";
 import type { ProjectInfoResult } from "babylon-ifc-loader";
+import type { ElementPickData } from "./utils/pickingUtils";
 
 // Folder Open Icon
 const FolderOpenIcon = () => (
@@ -95,6 +96,7 @@ function App() {
   // null means all visible, Set with IDs means only those storeys are visible
   const [visibleStoreyIds, setVisibleStoreyIds] = useState<Set<number> | null>(null);
   const [isSiteVisible, setIsSiteVisible] = useState(true);
+  const [pickedElement, setPickedElement] = useState<ElementPickData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleOpenIfc = useCallback(() => {
@@ -115,7 +117,7 @@ function App() {
     }
   }, []);
 
-  const handleModelLoaded = useCallback((data: IfcModelData | null) => {
+const handleModelLoaded = useCallback((data: IfcModelData | null) => {
     if (data) {
       setModelData(data);
       setProjectInfo(data.projectInfo);
@@ -144,6 +146,7 @@ function App() {
       setSiteInfo(null);
       setVisibleStoreyIds(null);
       setIsSiteVisible(true);
+      setPickedElement(null);
     }
   }, []);
 
@@ -191,10 +194,15 @@ function App() {
     }
   }, [visibleStoreyIds, storeys]);
 
-  // Toggle site visibility via eye icon
+// Toggle site visibility via eye icon
   const toggleSiteVisibility = useCallback((event: React.MouseEvent) => {
     event.stopPropagation();
     setIsSiteVisible(prev => !prev);
+  }, []);
+
+// Handle picked element
+  const handleElementPicked = useCallback((data: ElementPickData | null) => {
+    setPickedElement(data);
   }, []);
 
   return (
@@ -221,6 +229,39 @@ function App() {
           style={{ display: 'none' }}
         />
       </header>
+      {/* Hidden Element Info Div - shows when element is picked */}
+      {pickedElement && (
+        <div className="element-info-panel">
+          <div className="element-info-header">
+            <h3>Element Info</h3>
+            <button 
+              className="close-info-btn"
+              onClick={() => handleElementPicked(null)}
+              title="Close"
+            >
+              ×
+            </button>
+          </div>
+          <div className="element-info-content">
+            <div className="picked-element-item">
+              <span className="picked-element-label">Type:</span>
+              <span className="picked-element-value">{pickedElement.typeName}</span>
+            </div>
+            <div className="picked-element-item">
+              <span className="picked-element-label">Name:</span>
+              <span className="picked-element-value">{pickedElement.elementName}</span>
+            </div>
+            <div className="picked-element-item">
+              <span className="picked-element-label">Express ID:</span>
+              <span className="picked-element-value">{pickedElement.expressID}</span>
+            </div>
+            <div className="picked-element-item">
+              <span className="picked-element-label">Model ID:</span>
+              <span className="picked-element-value">{pickedElement.modelID}</span>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="main-container">
         <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
           <div className="sidebar-header">
@@ -255,7 +296,7 @@ function App() {
             </button>
           </div>
           <div className="sidebar-content">
-            {activeTab === "storey" ? (
+{activeTab === "storey" ? (
               <div className="tab-panel">
                 <h3>Storey Navigation</h3>
                 <div className="storey-list">
@@ -357,7 +398,7 @@ function App() {
                   </div>
                 </div>
               </div>
-            ) : (
+            ) : activeTab === 'info' ? (
               <div className="tab-panel">
                 <h3>Info</h3>
                 <div className="project-info">
@@ -401,19 +442,20 @@ function App() {
                   )}
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
           <div className="sidebar-footer">
             Footer
           </div>
         </aside>
         <main className="canvas-container">
-          <BabylonScene 
+<BabylonScene 
             onModelLoaded={handleModelLoaded}
             storeyMap={modelData?.storeyMap}
             siteExpressId={siteInfo?.expressID ?? null}
             visibleStoreyIds={visibleStoreyIds}
             isSiteVisible={isSiteVisible}
+            onElementPicked={handleElementPicked}
           />
         </main>
       </div>

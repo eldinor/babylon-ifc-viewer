@@ -418,6 +418,87 @@
   text-align: center;
 }
 
+/* Picked Element Overlay */
+.picked-element-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.picked-element-info {
+  background-color: #0f3460;
+  border-radius: 8px;
+  padding: 20px;
+  max-width: 400px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.picked-element-info h3 {
+  margin: 0 0 16px 0;
+  color: #4fc3f7;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.element-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #16213e;
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-label {
+  font-size: 12px;
+  color: #888;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.detail-value {
+  font-size: 14px;
+  color: white;
+  font-weight: 500;
+  text-align: right;
+  word-break: break-word;
+}
+
+.clear-highlight-btn {
+  width: 100%;
+  padding: 10px;
+  background-color: #4fc3f7;
+  border: none;
+  border-radius: 4px;
+  color: #1a1a2e;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.clear-highlight-btn:hover {
+  background-color: #66d9ff;
+}
+
 /* Open IFC Button */
 .open-ifc-btn {
   display: flex;
@@ -435,4 +516,178 @@
 
 .open-ifc-btn:hover {
   background-color: #1a1a2e;
+}
+
+/* Element Info Panel - Hidden div that shows when element is picked */
+.element-info-panel {
+  position: absolute;
+  top: 40px; /* Below header */
+  left: 300px; /* Right of sidebar */
+  width: 250px;
+  height: 40vh;
+  background-color: #0f3460;
+  border: 1px solid #16213e;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  animation: slideInRight 0.3s ease-out;
+  transition: opacity 0.3s ease;
+}
+
+.element-info-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #16213e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #16213e;
+  border-radius: 8px 8px 0 0;
+}
+
+.element-info-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #4fc3f7;
+}
+
+.close-info-btn {
+  width: 24px;
+  height: 24px;
+  background-color: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #888;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.close-info-btn:hover {
+  background-color: #1a1a2e;
+  color: white;
+}
+
+.element-info-content {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+/* Sidebar positioning adjustment when element info panel is visible */
+.sidebar:not(.collapsed) ~ .main-container {
+  margin-left: 250px; /* Make space for element info panel */
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .element-info-panel {
+    left: 40px; /* Adjust for collapsed sidebar */
+  }
+  
+  .sidebar:not(.collapsed) ~ .main-container {
+    margin-left: 0; /* Reset margin on smaller screens */
+  }
+}
+
+@media (max-width: 768px) {
+  .element-info-panel {
+    position: fixed;
+    top: 40px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+    height: 30vh;
+    z-index: 200;
+  }
+  
+  .sidebar {
+    width: 100%;
+    position: fixed;
+    top: 40px;
+    left: 0;
+    z-index: 150;
+  }
+  
+  .sidebar.collapsed {
+    width: 40px;
+  }
+  
+  .main-container {
+    margin-top: 40px;
+    margin-left: 0;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Picked Element Sidebar Section */
+.picked-element-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.picked-element-sidebar h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #4fc3f7;
+}
+
+.picked-element-item {
+  padding: 8px 12px;
+  background-color: #0f3460;
+  border-radius: 4px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.picked-element-item:hover {
+  background-color: #1a1a2e;
+}
+
+.picked-element-label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  font-weight: 600;
+  min-width: 80px;
+}
+
+.picked-element-value {
+  font-size: 13px;
+  color: white;
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picked-element-empty {
+  padding: 16px;
+  text-align: center;
+  color: #888;
+  font-size: 12px;
+  background-color: #0f3460;
+  border-radius: 4px;
 }

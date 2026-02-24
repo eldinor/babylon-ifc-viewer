@@ -234,6 +234,66 @@
   text-decoration: line-through;
 }
 
+/* Site-specific styling */
+.storey-item.site-item {
+  border-left: 3px solid #4fc3f7;
+}
+
+.storey-item.site-item.active {
+  background-color: #1a1a2e;
+  color: white;
+  font-weight: 600;
+  border-left-color: #2979ff;
+  box-shadow: inset 0 0 0 1px rgba(41, 121, 255, 0.3);
+}
+
+.storey-item.site-item.active:hover {
+  background-color: #2a2a3e;
+}
+
+.storey-item.site-item.active .storey-elevation,
+.storey-item.site-item.active .storey-count {
+  color: #ccc;
+  opacity: 1;
+}
+
+.storey-item.site-item.active .visibility-btn {
+  color: white;
+}
+
+.storey-item.site-item.active .visibility-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+/* Site visible state styling (when eye icon is opened) */
+.storey-item.site-item.site-visible {
+  background-color: #1a1a2e;
+  color: white;
+  font-weight: 600;
+  border-left-color: #2979ff;
+  box-shadow: inset 0 0 0 1px rgba(41, 121, 255, 0.3);
+}
+
+.storey-item.site-item.site-visible:hover {
+  background-color: #2a2a3e;
+}
+
+.storey-item.site-item.site-visible .storey-elevation,
+.storey-item.site-item.site-visible .storey-count {
+  color: #ccc;
+  opacity: 1;
+}
+
+.storey-item.site-item.site-visible .visibility-btn {
+  color: white;
+}
+
+.storey-item.site-item.site-visible .visibility-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
 .storey-empty {
   padding: 16px;
   text-align: center;

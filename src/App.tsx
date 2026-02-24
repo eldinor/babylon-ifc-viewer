@@ -298,7 +298,7 @@ const handleModelLoaded = useCallback((data: IfcModelData | null) => {
                     </>
                   ) : (
                     <div className="storey-empty">
-                      No IFC model loaded. Click "Open IFC" to load a file.
+                      No storeys found in IFC model.
                     </div>
                   )}
                 </div>

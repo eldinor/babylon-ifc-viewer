@@ -153,12 +153,14 @@ const handleModelLoaded = useCallback((data: IfcModelData | null) => {
   // Handle storey row click - select single storey
   const handleStoreyClick = useCallback((storeyId: number) => {
     setVisibleStoreyIds(new Set([storeyId]));
-    setIsSiteVisible(false); // Hide site when a storey is selected
+    // Keep site visible when clicking storey - allow site + storey visibility
+    // setIsSiteVisible(false); // Commented out to keep site visible
   }, []);
 
-  // Handle site row click - select site
+  // Handle site row click - select site (hide all storeys)
   const handleSiteClick = useCallback(() => {
-    setIsSiteVisible(true);
+    setVisibleStoreyIds(new Set()); // Hide all storeys
+    setIsSiteVisible(true); // Show site
   }, []);
 
   // Handle "All Storeys" click
@@ -197,8 +199,16 @@ const handleModelLoaded = useCallback((data: IfcModelData | null) => {
 // Toggle site visibility via eye icon
   const toggleSiteVisibility = useCallback((event: React.MouseEvent) => {
     event.stopPropagation();
-    setIsSiteVisible(prev => !prev);
-  }, []);
+    
+    // If site is currently hidden, make it visible AND select it (hide all storeys)
+    if (!isSiteVisible) {
+      setVisibleStoreyIds(new Set()); // Hide all storeys
+      setIsSiteVisible(true); // Show site
+    } else {
+      // If site is currently visible, hide it (but maintain current storey selection state)
+      setIsSiteVisible(false);
+    }
+  }, [isSiteVisible]);
 
 // Handle picked element
   const handleElementPicked = useCallback((data: ElementPickData | null) => {
@@ -314,7 +324,11 @@ const handleModelLoaded = useCallback((data: IfcModelData | null) => {
                       {storeys.map((storey) => {
                         // Eye is open if: all visible (null) or this storey is in visible set
                         const isEyeOpen = visibleStoreyIds === null || visibleStoreyIds.has(storey.expressID);
-                        const isActive = visibleStoreyIds !== null && visibleStoreyIds.size === 1 && visibleStoreyIds.has(storey.expressID);
+                        // Active if: this storey is the only one selected, OR if multiple are selected and this one is visible
+                        const isActive = visibleStoreyIds !== null && (
+                          (visibleStoreyIds.size === 1 && visibleStoreyIds.has(storey.expressID)) ||
+                          (visibleStoreyIds.size > 1 && visibleStoreyIds.has(storey.expressID))
+                        );
                         return (
                           <div
                             key={storey.expressID}
@@ -340,7 +354,7 @@ const handleModelLoaded = useCallback((data: IfcModelData | null) => {
                       {/* Site item */}
                       {siteInfo && (
                         <div
-                          className={`storey-item site-item ${visibleStoreyIds === null && isSiteVisible ? "" : (isSiteVisible ? "" : "hidden")}`}
+                          className={`storey-item site-item ${visibleStoreyIds === null && isSiteVisible ? "" : (isSiteVisible ? "" : "hidden")} ${visibleStoreyIds !== null && visibleStoreyIds.size === 0 ? "active" : ""} ${isSiteVisible ? "site-visible" : ""}`}
                           onClick={handleSiteClick}
                           title="Site elements"
                         >

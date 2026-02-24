@@ -85,8 +85,8 @@ const [ifcReady, setIfcReady] = useState(false);
             shouldShow = visibleStoreyIds.has(meshStoreyId);
           }
         } else {
-          // Mesh without storey assignment - show in all visible mode
-          shouldShow = visibleStoreyIds === null || visibleStoreyIds === undefined;
+          // Mesh without storey assignment - show in all visible mode or when site is selected (empty set)
+          shouldShow = visibleStoreyIds === null || visibleStoreyIds === undefined || (visibleStoreyIds && visibleStoreyIds.size === 0);
         }
 
         mesh.isVisible = shouldShow;

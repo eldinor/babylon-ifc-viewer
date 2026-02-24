@@ -249,7 +249,7 @@ const handleModelLoaded = useCallback((data: IfcModelData | null) => {
             </div>
             <div className="picked-element-item">
               <span className="picked-element-label">Name:</span>
-              <span className="picked-element-value">{pickedElement.elementName}</span>
+              <span className="picked-element-value" title={pickedElement.elementName}>{pickedElement.elementName}</span>
             </div>
             <div className="picked-element-item">
               <span className="picked-element-label">Express ID:</span>

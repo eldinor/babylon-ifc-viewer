@@ -523,8 +523,8 @@
   position: absolute;
   top: 40px; /* Below header */
   left: 300px; /* Right of sidebar */
-  width: 250px;
-  height: 40vh;
+  width: 300px;
+  height: auto;
   background-color: #0f3460;
   border: 1px solid #16213e;
   border-radius: 8px;
@@ -537,6 +537,7 @@
 }
 
 .element-info-header {
+  height: 40px;
   padding: 12px 16px;
   border-bottom: 1px solid #16213e;
   display: flex;
@@ -582,7 +583,7 @@
 
 /* Sidebar positioning adjustment when element info panel is visible */
 .sidebar:not(.collapsed) ~ .main-container {
-  margin-left: 250px; /* Make space for element info panel */
+  margin-left: 300px; /* Make space for element info panel */
 }
 
 /* Responsive adjustments */

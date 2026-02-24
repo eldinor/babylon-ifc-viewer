@@ -18,6 +18,12 @@ import {
 } from "babylon-ifc-loader";
 import type { RawIfcModel, ProjectInfoResult } from "babylon-ifc-loader";
 import * as WebIFC from "web-ifc";
+import {
+  setupPickingHandler,
+  type PickingManager,
+  type PickingOptions,
+  type ElementPickData,
+} from "../utils/pickingUtils";
 
 /**
  * Data passed to parent when an IFC model is loaded
@@ -39,17 +45,29 @@ interface BabylonSceneProps {
   visibleStoreyIds?: Set<number> | null;
   /** Whether the site should be visible */
   isSiteVisible?: boolean;
+  /** Options for mesh picking/highlighting */
+  pickingOptions?: PickingOptions;
+  /** Callback when an IFC element is picked */
+  onElementPicked?: (data: ElementPickData) => void;
 }
 
-function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible }: BabylonSceneProps) {
+function BabylonScene({
+  onModelLoaded,
+  storeyMap,
+  siteExpressId,
+  visibleStoreyIds,
+  isSiteVisible,
+  pickingOptions,
+  onElementPicked,
+}: BabylonSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const sceneRef = useRef<Scene | null>(null);
   const ifcAPIRef = useRef<WebIFC.IfcAPI | null>(null);
   const modelRef = useRef<RawIfcModel | null>(null);
+  const pickingManagerRef = useRef<PickingManager | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ifcReady, setIfcReady] = useState(false);
 
   // Effect to show/hide meshes based on visible storeys
   useEffect(() => {
@@ -97,7 +115,7 @@ function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyId
       }
     });
 
-    console.log(`Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (visible storeys: ${visibleStoreyIds === null ? 'all' : visibleStoreyIds.size})`);
+    console.log(`Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (visible storeys: ${visibleStoreyIds == null ? 'all' : visibleStoreyIds.size})`);
   }, [storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible]);
 
   // Initialize engine and scene
@@ -149,7 +167,18 @@ function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyId
         const ifcAPI = await initializeWebIFC('./', WebIFC.LogLevel.LOG_LEVEL_ERROR)
         ifcAPIRef.current = ifcAPI
         console.log('✓ WebIFC initialized')
-        setIfcReady(true)
+        
+        // Setup picking handler
+        if (sceneRef.current) {
+          pickingManagerRef.current = setupPickingHandler(sceneRef.current, ifcAPI, {
+            ...pickingOptions,
+            onElementPicked: (data: ElementPickData) => {
+              console.log(`🎯 Picked: ${data.typeName} - ${data.elementName} (ID: ${data.expressID})`)
+              onElementPicked?.(data)
+            },
+          })
+          console.log('✓ Picking handler initialized')
+        }
       } catch (err) {
         console.error('Failed to initialize WebIFC:', err)
         setError('Failed to initialize IFC loader')
@@ -160,6 +189,12 @@ function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyId
     // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize)
+      
+      // Dispose picking manager
+      if (pickingManagerRef.current) {
+        pickingManagerRef.current.dispose()
+        pickingManagerRef.current = null
+      }
       
       // Dispose IFC model if loaded
       if (sceneRef.current) {
@@ -173,7 +208,7 @@ function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyId
       
       engine.dispose()
     }
-  }, [])
+  }, [pickingOptions, onElementPicked])
 
   // Function to load IFC file
   const loadIfcFile = useCallback(async (file: File | string) => {
@@ -280,13 +315,6 @@ function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyId
       delete win.loadIfcFile
     }
   }, [loadIfcFile])
-
-  // Auto-load sample.ifc when WebIFC is ready
-  useEffect(() => {
-    if (ifcReady && ifcAPIRef.current && sceneRef.current) {
-      loadIfcFile('./sample.ifc')
-    }
-  }, [ifcReady, loadIfcFile])
 
   return (
     <div className="babylon-scene-container">

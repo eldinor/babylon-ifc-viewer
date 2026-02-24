@@ -3,6 +3,7 @@ import "./App.css";
 import BabylonScene, { type IfcModelData } from "./components/BabylonScene";
 import { getBuildingStoreys, formatElevation, type StoreyInfo, getSite, type SiteInfo } from "./utils/ifcUtils";
 import type { ProjectInfoResult } from "babylon-ifc-loader";
+import { type ElementPickData } from "./utils/pickingUtils";
 
 // Folder Open Icon
 const FolderOpenIcon = () => (
@@ -95,6 +96,7 @@ function App() {
   // null means all visible, Set with IDs means only those storeys are visible
   const [visibleStoreyIds, setVisibleStoreyIds] = useState<Set<number> | null>(null);
   const [isSiteVisible, setIsSiteVisible] = useState(true);
+  const [highlightedElement, setHighlightedElement] = useState<ElementPickData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleOpenIfc = useCallback(() => {
@@ -195,6 +197,16 @@ function App() {
   const toggleSiteVisibility = useCallback((event: React.MouseEvent) => {
     event.stopPropagation();
     setIsSiteVisible(prev => !prev);
+  }, []);
+
+  // Handle element picked from BabylonScene
+  const handleElementPicked = useCallback((data: ElementPickData) => {
+    setHighlightedElement(data);
+  }, []);
+
+  // Handle highlight cleared
+  const handleHighlightClear = useCallback(() => {
+    setHighlightedElement(null);
   }, []);
 
   return (
@@ -414,7 +426,52 @@ function App() {
             siteExpressId={siteInfo?.expressID ?? null}
             visibleStoreyIds={visibleStoreyIds}
             isSiteVisible={isSiteVisible}
+            onElementPicked={handleElementPicked}
+            pickingOptions={{
+              onClear: handleHighlightClear,
+            }}
           />
+          {/* Element Info Overlay */}
+          {highlightedElement && (
+            <div className="element-info-overlay">
+              <div className="element-info-header">
+                <span className="element-type">{highlightedElement.typeName}</span>
+                <button 
+                  className="element-info-close" 
+                  onClick={() => setHighlightedElement(null)}
+                  title="Close"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="element-info-content">
+                <div className="info-row">
+                  <span className="info-label">Name</span>
+                  <span className="info-value">{highlightedElement.elementName}</span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">Express ID</span>
+                  <span className="info-value">{highlightedElement.expressID}</span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">Global ID</span>
+                  <span className="info-value">{highlightedElement.globalId || '—'}</span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">Material</span>
+                  <span className="info-value">{highlightedElement.materialName || '—'}</span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">Storey</span>
+                  <span className="info-value">{highlightedElement.storeyName || '—'}</span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">Space</span>
+                  <span className="info-value">{highlightedElement.spaceName || '—'}</span>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
       <footer className="footer">

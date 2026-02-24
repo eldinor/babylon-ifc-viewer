@@ -206,3 +206,201 @@ export function getSite(ifcAPI: WebIFC.IfcAPI, modelID: number): SiteInfo | null
     return null;
   }
 }
+
+// ============================================================================
+// Element Information Extraction
+// ============================================================================
+
+/**
+ * Extended information about an IFC element
+ */
+export interface ElementInfo {
+  /** Express ID of the IFC element */
+  expressID: number;
+  /** IFC type name (e.g., "IFCWALL", "IFCDOOR") */
+  typeName: string;
+  /** Element name from IFC properties */
+  elementName: string;
+  /** Global unique identifier (GUID) */
+  globalId: string | null;
+  /** Material name(s) associated with the element */
+  materialName: string | null;
+  /** Name of the containing building storey */
+  storeyName: string | null;
+  /** Express ID of the containing building storey */
+  storeyExpressID: number | null;
+  /** Name of the containing space (if any) */
+  spaceName: string | null;
+  /** Full element data from web-ifc */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  element: any;
+}
+
+/**
+ * Get material name(s) for an IFC element
+ *
+ * @param ifcAPI - Initialized web-ifc API instance
+ * @param modelID - Model ID from loadIfcModel
+ * @param expressID - Express ID of the element
+ * @returns Material name string or null if not found
+ */
+export function getElementMaterial(ifcAPI: WebIFC.IfcAPI, modelID: number, expressID: number): string | null {
+  try {
+    // Get all IFCRELASSOCIATESMATERIAL relationships
+    const materialRelIDs = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCRELASSOCIATESMATERIAL);
+
+    for (let i = 0; i < materialRelIDs.size(); i++) {
+      const relID = materialRelIDs.get(i);
+      const relData = ifcAPI.GetLine(modelID, relID, true);
+
+      // Check if this relationship relates to our element
+      const relatedObjects = relData.RelatedObjects;
+      if (relatedObjects && Array.isArray(relatedObjects)) {
+        const isRelated = relatedObjects.some((obj: { value: number }) => obj.value === expressID);
+        if (isRelated && relData.RelatingMaterial) {
+          const materialRef = relData.RelatingMaterial;
+          const materialData = ifcAPI.GetLine(modelID, materialRef.value, true);
+
+          // Handle different material types
+          if (materialData.Name?.value) {
+            return materialData.Name.value;
+          }
+          // Handle material constituent set
+          if (materialData.MaterialConstituents) {
+            const constituents = materialData.MaterialConstituents;
+            const names: string[] = [];
+            for (const constituent of constituents) {
+              const constituentData = ifcAPI.GetLine(modelID, constituent.value, true);
+              if (constituentData.Material) {
+                const matData = ifcAPI.GetLine(modelID, constituentData.Material.value, true);
+                if (matData.Name?.value) {
+                  names.push(matData.Name.value);
+                }
+              }
+            }
+            if (names.length > 0) return names.join(", ");
+          }
+          // Handle material layer set
+          if (materialData.MaterialLayers) {
+            const layers = materialData.MaterialLayers;
+            const names: string[] = [];
+            for (const layer of layers) {
+              const layerData = ifcAPI.GetLine(modelID, layer.value, true);
+              if (layerData.Material) {
+                const matData = ifcAPI.GetLine(modelID, layerData.Material.value, true);
+                if (matData.Name?.value) {
+                  names.push(matData.Name.value);
+                }
+              }
+            }
+            if (names.length > 0) return names.join(", ");
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`Failed to get material for element ${expressID}:`, error);
+  }
+  return null;
+}
+
+/**
+ * Get spatial containment (storey/space) for an IFC element
+ *
+ * @param ifcAPI - Initialized web-ifc API instance
+ * @param modelID - Model ID from loadIfcModel
+ * @param expressID - Express ID of the element
+ * @returns Object containing storey and space information
+ */
+export function getElementSpatialContainer(
+  ifcAPI: WebIFC.IfcAPI,
+  modelID: number,
+  expressID: number,
+): { storeyName: string | null; storeyExpressID: number | null; spaceName: string | null } {
+  const result = {
+    storeyName: null as string | null,
+    storeyExpressID: null as number | null,
+    spaceName: null as string | null,
+  };
+
+  try {
+    // Get all IFCRELCONTAINEDINSPATIALSTRUCTURE relationships
+    const containmentRelIDs = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE);
+
+    for (let i = 0; i < containmentRelIDs.size(); i++) {
+      const relID = containmentRelIDs.get(i);
+      const relData = ifcAPI.GetLine(modelID, relID, true);
+
+      // Check if this relationship relates to our element
+      const relatedElements = relData.RelatedElements;
+      if (relatedElements && Array.isArray(relatedElements)) {
+        const isRelated = relatedElements.some((el: { value: number }) => el.value === expressID);
+        if (isRelated && relData.RelatingStructure) {
+          const structureRef = relData.RelatingStructure;
+          const structureData = ifcAPI.GetLine(modelID, structureRef.value, true);
+
+          // Check if it's a building storey
+          if (structureData.type === WebIFC.IFCBUILDINGSTOREY) {
+            result.storeyName =
+              structureData.Name?.value || structureData.LongName?.value || `Storey ${structureRef.value}`;
+            result.storeyExpressID = structureRef.value;
+          }
+          // Check if it's a space
+          else if (structureData.type === WebIFC.IFCSPACE) {
+            result.spaceName =
+              structureData.Name?.value || structureData.LongName?.value || `Space ${structureRef.value}`;
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`Failed to get spatial container for element ${expressID}:`, error);
+  }
+
+  return result;
+}
+
+/**
+ * Get extended information about an IFC element
+ *
+ * @param ifcAPI - Initialized web-ifc API instance
+ * @param modelID - Model ID from loadIfcModel
+ * @param expressID - Express ID of the element
+ * @returns ElementInfo object or null if not found
+ */
+export function getElementInfo(ifcAPI: WebIFC.IfcAPI, modelID: number, expressID: number): ElementInfo | null {
+  try {
+    // Get full element data
+    const element = ifcAPI.GetLine(modelID, expressID, true);
+
+    // Get type name
+    const typeName = ifcAPI.GetNameFromTypeCode(element.type);
+
+    // Get element name
+    const elementName = element.Name?.value || "Unnamed";
+
+    // Get GlobalId
+    const globalId = element.GlobalId?.value || null;
+
+    // Get material
+    const materialName = getElementMaterial(ifcAPI, modelID, expressID);
+
+    // Get spatial containment
+    const spatialContainer = getElementSpatialContainer(ifcAPI, modelID, expressID);
+
+    return {
+      expressID,
+      typeName,
+      elementName,
+      globalId,
+      materialName,
+      storeyName: spatialContainer.storeyName,
+      storeyExpressID: spatialContainer.storeyExpressID,
+      spaceName: spatialContainer.spaceName,
+      element,
+    };
+  } catch (error) {
+    console.error(`Failed to get element info for expressID ${expressID}:`, error);
+    return null;
+  }
+}

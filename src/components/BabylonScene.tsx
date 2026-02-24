@@ -18,6 +18,7 @@ import {
 } from "babylon-ifc-loader";
 import type { RawIfcModel, ProjectInfoResult } from "babylon-ifc-loader";
 import * as WebIFC from "web-ifc";
+import { setupPickingHandler, type ElementPickData } from "../utils/pickingUtils";
 
 /**
  * Data passed to parent when an IFC model is loaded
@@ -39,19 +40,21 @@ interface BabylonSceneProps {
   visibleStoreyIds?: Set<number> | null;
   /** Whether the site should be visible */
   isSiteVisible?: boolean;
+  /** Callback when an IFC element is picked */
+  onElementPicked?: (data: ElementPickData | null) => void;
 }
 
-function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible }: BabylonSceneProps) {
+function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible, onElementPicked }: BabylonSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const sceneRef = useRef<Scene | null>(null);
   const ifcAPIRef = useRef<WebIFC.IfcAPI | null>(null);
   const modelRef = useRef<RawIfcModel | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [ifcReady, setIfcReady] = useState(false);
+const [error, setError] = useState<string | null>(null);
+const [ifcReady, setIfcReady] = useState(false);
 
-  // Effect to show/hide meshes based on visible storeys
+// Effect to show/hide meshes based on visible storeys
   useEffect(() => {
     if (!sceneRef.current) return;
 
@@ -175,7 +178,7 @@ function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyId
     }
   }, [])
 
-  // Function to load IFC file
+// Function to load IFC file
   const loadIfcFile = useCallback(async (file: File | string) => {
     if (!ifcAPIRef.current || !sceneRef.current) {
       setError('IFC loader not initialized')
@@ -229,7 +232,7 @@ function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyId
         }
       }
 
-      // Notify parent component with full model data
+// Notify parent component with full model data
       if (onModelLoaded && ifcAPIRef.current) {
         onModelLoaded({
           projectInfo,
@@ -237,6 +240,24 @@ function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyId
           storeyMap: model.storeyMap,
           ifcAPI: ifcAPIRef.current,
         })
+      }
+
+// Setup picking handler
+      if (ifcAPIRef.current && sceneRef.current) {
+        setupPickingHandler(sceneRef.current, ifcAPIRef.current, {
+          onElementPicked: (data) => {
+            if (onElementPicked) {
+              onElementPicked(data);
+            }
+            console.log("Picked element:", data);
+          },
+          onClear: () => {
+            if (onElementPicked) {
+              onElementPicked(null);
+            }
+            console.log("Highlight cleared");
+          },
+        });
       }
 
       console.log(`✓ IFC model loaded: ${meshes.length} meshes`)
@@ -249,7 +270,7 @@ function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyId
     } finally {
       setIsLoading(false)
     }
-  }, [onModelLoaded])
+  }, [onModelLoaded, onElementPicked])
 
   // Handle file input
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -288,10 +309,10 @@ function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyId
     }
   }, [ifcReady, loadIfcFile])
 
-  return (
+return (
     <div className="babylon-scene-container">
-      <canvas 
-        ref={canvasRef} 
+      <canvas
+        ref={canvasRef}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         style={{ width: '100%', height: '100%', outline: 'none' }}

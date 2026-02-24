@@ -13,7 +13,8 @@
     "@babylonjs/core": "^8.52.0",
     "babylon-ifc-loader": "^1.0.2",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "web-ifc": "^0.0.75"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

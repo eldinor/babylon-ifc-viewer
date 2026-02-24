@@ -31,6 +31,7 @@ export class PickingManager {
   private ifcAPI: WebIFC.IfcAPI;
   private currentHighlightedMesh: AbstractMesh | null = null;
   private options: PickingOptions;
+  private pointerObserver: ReturnType<typeof this.scene.onPointerObservable.add> | null = null;
 
   constructor(scene: Scene, ifcAPI: WebIFC.IfcAPI, options?: PickingOptions) {
     this.scene = scene;
@@ -48,7 +49,7 @@ export class PickingManager {
    * Setup pointer event handling
    */
   private setupPointerEvents(): void {
-    this.scene.onPointerObservable.add((pointerInfo: PointerInfo) => {
+    this.pointerObserver = this.scene.onPointerObservable.add((pointerInfo: PointerInfo) => {
       const evt = pointerInfo.event;
       const pickResult = pointerInfo.pickInfo;
 
@@ -161,6 +162,17 @@ export class PickingManager {
   getCurrentHighlightedMesh(): AbstractMesh | null {
     return this.currentHighlightedMesh;
   }
+
+  /**
+   * Dispose the picking manager, removing pointer observable
+   */
+  dispose(): void {
+    this.clearHighlight();
+    if (this.pointerObserver) {
+      this.scene.onPointerObservable.remove(this.pointerObserver);
+      this.pointerObserver = null;
+    }
+  }
 }
 
 /**
@@ -168,22 +180,4 @@ export class PickingManager {
  */
 export function setupPickingHandler(scene: Scene, ifcAPI: WebIFC.IfcAPI, options?: PickingOptions): PickingManager {
   return new PickingManager(scene, ifcAPI, options);
-}
-
-/**
- * Clear current highlight
- */
-export function clearHighlight(): void {
-  console.warn(
-    "clearHighlight function requires a PickingManager instance. Use the method on the PickingManager class instead.",
-  );
-}
-
-/**
- * Set highlight options
- */
-export function setHighlightOptions(): void {
-  console.warn(
-    "setHighlightOptions function requires a PickingManager instance. Use the method on the PickingManager class instead.",
-  );
 }

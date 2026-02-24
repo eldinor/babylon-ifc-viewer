@@ -67,6 +67,22 @@ const InfoIcon = () => (
   </svg>
 )
 
+// Eye Icon (visible state)
+const EyeOpenIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+    <circle cx="12" cy="12" r="3"></circle>
+  </svg>
+)
+
+// Eye Off Icon (hidden state)
+const EyeClosedIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+    <line x1="1" y1="1" x2="23" y2="23"></line>
+  </svg>
+)
+
 type TabType = 'storey' | 'project' | 'info'
 
 function App() {
@@ -74,9 +90,11 @@ function App() {
   const [activeTab, setActiveTab] = useState<TabType>("storey");
   const [projectInfo, setProjectInfo] = useState<ProjectInfoResult | null>(null);
   const [storeys, setStoreys] = useState<StoreyInfo[]>([]);
-  const [selectedSpatialId, setSelectedSpatialId] = useState<number | null>(null);
   const [modelData, setModelData] = useState<IfcModelData | null>(null);
   const [siteInfo, setSiteInfo] = useState<SiteInfo | null>(null);
+  // null means all visible, Set with IDs means only those storeys are visible
+  const [visibleStoreyIds, setVisibleStoreyIds] = useState<Set<number> | null>(null);
+  const [isSiteVisible, setIsSiteVisible] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleOpenIfc = useCallback(() => {
@@ -114,17 +132,69 @@ function App() {
       const site = getSite(data.ifcAPI, data.modelID);
       setSiteInfo(site);
 
-      // Default to "All" (null) - don't auto-select a specific storey
-      setSelectedSpatialId(null);
+      // Reset visible storeys when loading a new model (null = all visible)
+      setVisibleStoreyIds(null);
+      setIsSiteVisible(true);
 
       setActiveTab("storey");
     } else {
       setModelData(null);
       setProjectInfo(null);
       setStoreys([]);
-      setSelectedSpatialId(null);
       setSiteInfo(null);
+      setVisibleStoreyIds(null);
+      setIsSiteVisible(true);
     }
+  }, []);
+
+  // Handle storey row click - select single storey
+  const handleStoreyClick = useCallback((storeyId: number) => {
+    setVisibleStoreyIds(new Set([storeyId]));
+    setIsSiteVisible(false); // Hide site when a storey is selected
+  }, []);
+
+  // Handle site row click - select site
+  const handleSiteClick = useCallback(() => {
+    setIsSiteVisible(true);
+  }, []);
+
+  // Handle "All Storeys" click
+  const handleAllStoreysClick = useCallback(() => {
+    setVisibleStoreyIds(null); // null = all visible
+    setIsSiteVisible(true);
+  }, []);
+
+  // Toggle storey visibility via eye icon
+  const toggleStoreyVisibility = useCallback((storeyId: number, event: React.MouseEvent) => {
+    event.stopPropagation();
+    
+    if (visibleStoreyIds === null) {
+      // All visible mode: clicking eye hides this storey
+      const allStoreyIds = new Set(storeys.map(s => s.expressID));
+      allStoreyIds.delete(storeyId);
+      setVisibleStoreyIds(allStoreyIds);
+    } else if (visibleStoreyIds.has(storeyId)) {
+      // This storey is visible: hide it
+      const newSet = new Set(visibleStoreyIds);
+      newSet.delete(storeyId);
+      if (newSet.size === 0) {
+        // If no storeys visible, go back to all visible
+        setVisibleStoreyIds(null);
+      } else {
+        setVisibleStoreyIds(newSet);
+      }
+    } else {
+      // This storey is hidden: show it (add to visible set)
+      const newSet = new Set(visibleStoreyIds);
+      newSet.add(storeyId);
+      setVisibleStoreyIds(newSet);
+    }
+  }, [visibleStoreyIds, storeys]);
+
+  // Toggle site visibility via eye icon
+  const toggleSiteVisibility = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    setIsSiteVisible(prev => !prev);
   }, []);
 
   return (
@@ -193,34 +263,53 @@ function App() {
                     <>
                       {/* "All Storeys" item */}
                       <div
-                        className={`storey-item ${selectedSpatialId === null ? "active" : ""}`}
-                        onClick={() => setSelectedSpatialId(null)}
+                        className={`storey-item ${visibleStoreyIds === null ? "active" : ""}`}
+                        onClick={handleAllStoreysClick}
                         title="Show all elements"
                       >
                         <span className="storey-name">All Storeys</span>
                       </div>
                       {/* Individual storeys */}
-                      {storeys.map((storey) => (
-                        <div
-                          key={storey.expressID}
-                          className={`storey-item ${selectedSpatialId === storey.expressID ? "active" : ""}`}
-                          onClick={() => setSelectedSpatialId(storey.expressID)}
-                          title={`${storey.elementCount} elements`}
-                        >
-                          <span className="storey-name">{storey.name}</span>
-                          {storey.elevation !== null && (
-                            <span className="storey-elevation">{formatElevation(storey.elevation)}</span>
-                          )}
-                          <span className="storey-count">({storey.elementCount})</span>
-                        </div>
-                      ))}
+                      {storeys.map((storey) => {
+                        // Eye is open if: all visible (null) or this storey is in visible set
+                        const isEyeOpen = visibleStoreyIds === null || visibleStoreyIds.has(storey.expressID);
+                        const isActive = visibleStoreyIds !== null && visibleStoreyIds.size === 1 && visibleStoreyIds.has(storey.expressID);
+                        return (
+                          <div
+                            key={storey.expressID}
+                            className={`storey-item ${isActive ? "active" : ""} ${!isEyeOpen ? "hidden" : ""}`}
+                            onClick={() => handleStoreyClick(storey.expressID)}
+                            title={`${storey.elementCount} elements`}
+                          >
+                            <button
+                              className="visibility-btn"
+                              onClick={(e) => toggleStoreyVisibility(storey.expressID, e)}
+                              title={isEyeOpen ? "Hide storey" : "Show storey"}
+                            >
+                              {isEyeOpen ? <EyeOpenIcon /> : <EyeClosedIcon />}
+                            </button>
+                            <span className="storey-name">{storey.name}</span>
+                            {storey.elevation !== null && (
+                              <span className="storey-elevation">{formatElevation(storey.elevation)}</span>
+                            )}
+                            <span className="storey-count">({storey.elementCount})</span>
+                          </div>
+                        );
+                      })}
                       {/* Site item */}
                       {siteInfo && (
                         <div
-                          className={`storey-item site-item ${selectedSpatialId === siteInfo.expressID ? "active" : ""}`}
-                          onClick={() => setSelectedSpatialId(siteInfo.expressID)}
+                          className={`storey-item site-item ${visibleStoreyIds === null && isSiteVisible ? "" : (isSiteVisible ? "" : "hidden")}`}
+                          onClick={handleSiteClick}
                           title="Site elements"
                         >
+                          <button
+                            className="visibility-btn"
+                            onClick={toggleSiteVisibility}
+                            title={isSiteVisible ? "Hide site" : "Show site"}
+                          >
+                            {isSiteVisible ? <EyeOpenIcon /> : <EyeClosedIcon />}
+                          </button>
                           <span className="storey-name">{siteInfo.name}</span>
                         </div>
                       )}
@@ -321,9 +410,10 @@ function App() {
         <main className="canvas-container">
           <BabylonScene 
             onModelLoaded={handleModelLoaded}
-            selectedSpatialId={selectedSpatialId}
             storeyMap={modelData?.storeyMap}
             siteExpressId={siteInfo?.expressID ?? null}
+            visibleStoreyIds={visibleStoreyIds}
+            isSiteVisible={isSiteVisible}
           />
         </main>
       </div>

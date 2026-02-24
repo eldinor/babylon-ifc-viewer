@@ -192,6 +192,48 @@
   opacity: 0.7;
 }
 
+/* Visibility button in storey item */
+.visibility-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin-left: -4px;
+  margin-right: 8px;
+  background-color: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.visibility-btn:hover {
+  background-color: #1a1a2e;
+  color: white;
+}
+
+.storey-item.active .visibility-btn {
+  color: #1a1a2e;
+}
+
+.storey-item.active .visibility-btn:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+  color: #1a1a2e;
+}
+
+/* Hidden storey item styling */
+.storey-item.hidden {
+  opacity: 0.5;
+}
+
+.storey-item.hidden .storey-name {
+  text-decoration: line-through;
+}
+
 .storey-empty {
   padding: 16px;
   text-align: center;

@@ -31,15 +31,17 @@ export interface IfcModelData {
 
 interface BabylonSceneProps {
   onModelLoaded?: (modelData: IfcModelData | null) => void;
-  /** Currently selected spatial element ID (storey or site) - meshes not in this element will be hidden */
-  selectedSpatialId?: number | null;
   /** Storey map from model data for filtering meshes */
   storeyMap?: Map<number, number>;
   /** Site expressID for filtering site mesh */
   siteExpressId?: number | null;
+  /** Set of storey IDs that should be visible (null = all visible) */
+  visibleStoreyIds?: Set<number> | null;
+  /** Whether the site should be visible */
+  isSiteVisible?: boolean;
 }
 
-function BabylonScene({ onModelLoaded, selectedSpatialId, storeyMap, siteExpressId }: BabylonSceneProps) {
+function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible }: BabylonSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const sceneRef = useRef<Scene | null>(null);
@@ -49,7 +51,7 @@ function BabylonScene({ onModelLoaded, selectedSpatialId, storeyMap, siteExpress
   const [error, setError] = useState<string | null>(null);
   const [ifcReady, setIfcReady] = useState(false);
 
-  // Effect to show/hide meshes based on selected spatial element (storey or site)
+  // Effect to show/hide meshes based on visible storeys
   useEffect(() => {
     if (!sceneRef.current) return;
 
@@ -61,17 +63,27 @@ function BabylonScene({ onModelLoaded, selectedSpatialId, storeyMap, siteExpress
       if (mesh.metadata?.expressID !== undefined) {
         const meshStoreyId = storeyMap?.get(mesh.metadata.expressID);
 
-        // If selectedSpatialId is null/undefined, show all meshes
-        // Otherwise, show only meshes belonging to the selected spatial element
+        // Determine visibility based on visibleStoreyIds
         let shouldShow = true;
-        if (selectedSpatialId !== null && selectedSpatialId !== undefined) {
-          if (siteExpressId !== null && selectedSpatialId === siteExpressId) {
-            // Site selected: show the mesh with Site's expressID (Site's own geometry)
-            shouldShow = mesh.metadata.expressID === siteExpressId;
+
+        // Check if this is a site mesh
+        const isSiteMesh = siteExpressId !== null && siteExpressId !== undefined && mesh.metadata.expressID === siteExpressId;
+        
+        if (isSiteMesh) {
+          // Site mesh: use isSiteVisible
+          shouldShow = isSiteVisible !== false;
+        } else if (meshStoreyId !== undefined) {
+          // Regular mesh with storey assignment
+          if (visibleStoreyIds === null || visibleStoreyIds === undefined) {
+            // All visible mode
+            shouldShow = true;
           } else {
-            // Storey selected: show only meshes belonging to that storey
-            shouldShow = meshStoreyId === selectedSpatialId;
+            // Only show if storey is in visible set
+            shouldShow = visibleStoreyIds.has(meshStoreyId);
           }
+        } else {
+          // Mesh without storey assignment - show in all visible mode
+          shouldShow = visibleStoreyIds === null || visibleStoreyIds === undefined;
         }
 
         mesh.isVisible = shouldShow;
@@ -85,8 +97,8 @@ function BabylonScene({ onModelLoaded, selectedSpatialId, storeyMap, siteExpress
       }
     });
 
-    console.log(`Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (spatial: ${selectedSpatialId})`);
-  }, [selectedSpatialId, storeyMap, siteExpressId]);
+    console.log(`Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (visible storeys: ${visibleStoreyIds === null ? 'all' : visibleStoreyIds.size})`);
+  }, [storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible]);
 
   // Initialize engine and scene
   useEffect(() => {

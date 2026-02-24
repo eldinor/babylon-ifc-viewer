@@ -100,7 +100,7 @@ const [ifcReady, setIfcReady] = useState(false);
       }
     });
 
-    console.log(`Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (visible storeys: ${visibleStoreyIds === null ? 'all' : visibleStoreyIds.size})`);
+    console.log(`Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (visible storeys: ${visibleStoreyIds === null ? 'all' : visibleStoreyIds?.size})`);
   }, [storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible]);
 
   // Initialize engine and scene

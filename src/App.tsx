@@ -259,6 +259,40 @@ const handleModelLoaded = useCallback((data: IfcModelData | null) => {
               <span className="picked-element-label">Model ID:</span>
               <span className="picked-element-value">{pickedElement.modelID}</span>
             </div>
+            {pickedElement.materialName && (
+              <div className="picked-element-item">
+                <span className="picked-element-label">Element Material:</span>
+                <span className="picked-element-value">{pickedElement.materialName}</span>
+              </div>
+            )}
+            {pickedElement.colorId !== undefined && (
+              <div className="picked-element-item">
+                <span className="picked-element-label">Element ColorID:</span>
+                <span className="picked-element-value">{pickedElement.colorId}</span>
+              </div>
+            )}
+            {pickedElement.color && (
+              <div className="picked-element-item">
+                <span className="picked-element-label">Element Color:</span>
+                <div className="color-display">
+                  <div 
+                    className="color-swatch"
+                    style={{
+                      backgroundColor: `rgba(${Math.round(pickedElement.color.r * 255)}, ${Math.round(pickedElement.color.g * 255)}, ${Math.round(pickedElement.color.b * 255)}, ${pickedElement.color.a})`,
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '4px',
+                      border: '1px solid #ccc',
+                      marginRight: '8px'
+                    }}
+                  ></div>
+                  <span className="picked-element-value">
+                    RGB({Math.round(pickedElement.color.r * 255)}, {Math.round(pickedElement.color.g * 255)}, {Math.round(pickedElement.color.b * 255)})
+                    {pickedElement.color.a !== 1 && `, A(${pickedElement.color.a.toFixed(2)})`}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

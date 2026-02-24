@@ -1,4 +1,4 @@
-import { Scene, AbstractMesh, Color3, PointerEventTypes, PointerInfo } from "@babylonjs/core";
+import { Scene, AbstractMesh, Color3, PointerEventTypes, PointerInfo, Observer } from "@babylonjs/core";
 import * as WebIFC from "web-ifc";
 
 /**
@@ -31,7 +31,7 @@ export class PickingManager {
   private ifcAPI: WebIFC.IfcAPI;
   private currentHighlightedMesh: AbstractMesh | null = null;
   private options: PickingOptions;
-  private pointerObserver: ReturnType<typeof this.scene.onPointerObservable.add> | null = null;
+  private pointerObserver: Observer<PointerInfo> | null = null;
 
   constructor(scene: Scene, ifcAPI: WebIFC.IfcAPI, options?: PickingOptions) {
     this.scene = scene;

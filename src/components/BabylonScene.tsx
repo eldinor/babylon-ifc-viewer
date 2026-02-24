@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
+import { useEffect, useRef, useState, useCallback, useImperativeHandle } from "react";
 import {
   Engine,
   Scene,
@@ -50,9 +50,11 @@ interface BabylonSceneProps {
   isSiteVisible?: boolean;
   /** Callback when an IFC element is picked */
   onElementPicked?: (data: ElementPickData | null) => void;
+  /** Ref to expose loadIfcFile to parent */
+  ref?: React.Ref<BabylonSceneHandle>;
 }
 
-const BabylonScene = forwardRef<BabylonSceneHandle, BabylonSceneProps>(function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible, onElementPicked }, ref) {
+function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible, onElementPicked, ref }: BabylonSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -60,6 +62,13 @@ const BabylonScene = forwardRef<BabylonSceneHandle, BabylonSceneProps>(function 
   const ifcAPIRef = useRef<WebIFC.IfcAPI | null>(null);
   const modelRef = useRef<RawIfcModel | null>(null);
   const pickingManagerRef = useRef<PickingManager | null>(null);
+
+  // Store callbacks in refs so loadIfcFile doesn't get recreated when they change
+  const onModelLoadedRef = useRef(onModelLoaded);
+  onModelLoadedRef.current = onModelLoaded;
+  const onElementPickedRef = useRef(onElementPicked);
+  onElementPickedRef.current = onElementPicked;
+
   const [isLoading, setIsLoading] = useState(false);
 const [error, setError] = useState<string | null>(null);
 const [ifcReady, setIfcReady] = useState(false);
@@ -115,6 +124,7 @@ const [ifcReady, setIfcReady] = useState(false);
 
   // Initialize engine and scene
   useEffect(() => {
+    console.log("[v0] Engine init effect: canvas=", !!canvasRef.current)
     if (!canvasRef.current) return
 
     const engine = new Engine(canvasRef.current, true, {
@@ -202,7 +212,10 @@ const [ifcReady, setIfcReady] = useState(false);
 
 // Function to load IFC file
   const loadIfcFile = useCallback(async (file: File | string) => {
+    console.log("[v0] loadIfcFile called with:", typeof file === 'string' ? file : file.name)
+    console.log("[v0] ifcAPI:", !!ifcAPIRef.current, "scene:", !!sceneRef.current)
     if (!ifcAPIRef.current || !sceneRef.current) {
+      console.log("[v0] ERROR: IFC loader not initialized")
       setError('IFC loader not initialized')
       return
     }
@@ -212,8 +225,8 @@ const [ifcReady, setIfcReady] = useState(false);
 
     // Clear any existing element selection and highlights immediately
     // This ensures the Element Info panel doesn't persist from previous model
-    if (onElementPicked) {
-      onElementPicked(null);
+    if (onElementPickedRef.current) {
+      onElementPickedRef.current(null);
     }
 
     // Dispose previous picking manager to prevent stacking observers
@@ -282,8 +295,8 @@ const [ifcReady, setIfcReady] = useState(false);
       }
 
 // Notify parent component with full model data
-      if (onModelLoaded && ifcAPIRef.current) {
-        onModelLoaded({
+      if (onModelLoadedRef.current && ifcAPIRef.current) {
+        onModelLoadedRef.current({
           projectInfo,
           modelID: model.modelID,
           ifcGlobalId,
@@ -296,14 +309,14 @@ const [ifcReady, setIfcReady] = useState(false);
       if (ifcAPIRef.current && sceneRef.current) {
         pickingManagerRef.current = setupPickingHandler(sceneRef.current, ifcAPIRef.current, {
           onElementPicked: (data) => {
-            if (onElementPicked) {
-              onElementPicked(data);
+            if (onElementPickedRef.current) {
+              onElementPickedRef.current(data);
             }
             console.log("Picked element:", data);
           },
           onClear: () => {
-            if (onElementPicked) {
-              onElementPicked(null);
+            if (onElementPickedRef.current) {
+              onElementPickedRef.current(null);
             }
             console.log("Highlight cleared");
           },
@@ -314,13 +327,14 @@ const [ifcReady, setIfcReady] = useState(false);
     } catch (err) {
       console.error('Failed to load IFC:', err)
       setError(err instanceof Error ? err.message : 'Failed to load IFC file')
-      if (onModelLoaded) {
-        onModelLoaded(null)
+      if (onModelLoadedRef.current) {
+        onModelLoadedRef.current(null)
       }
     } finally {
       setIsLoading(false)
     }
-  }, [onModelLoaded, onElementPicked])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Handle drag and drop
   const handleDrop = useCallback((event: React.DragEvent<HTMLCanvasElement>) => {
@@ -342,7 +356,9 @@ const [ifcReady, setIfcReady] = useState(false);
 
   // Auto-load sample.ifc when WebIFC is ready
   useEffect(() => {
+    console.log("[v0] Auto-load effect: ifcReady=", ifcReady, "ifcAPI=", !!ifcAPIRef.current, "scene=", !!sceneRef.current)
     if (ifcReady && ifcAPIRef.current && sceneRef.current) {
+      console.log("[v0] Calling loadIfcFile('./sample.ifc')")
       loadIfcFile('./sample.ifc')
     }
   }, [ifcReady, loadIfcFile])
@@ -368,6 +384,6 @@ return (
       )}
     </div>
   )
-})
+}
 
 export default BabylonScene

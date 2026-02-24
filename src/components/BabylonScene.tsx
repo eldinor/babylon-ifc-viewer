@@ -26,6 +26,7 @@ import { setupPickingHandler, type ElementPickData } from "../utils/pickingUtils
 export interface IfcModelData {
   projectInfo: ProjectInfoResult | null;
   modelID: number;
+  ifcGlobalId: string; // GlobalId from IFC file
   storeyMap: Map<number, number>;
   ifcAPI: WebIFC.IfcAPI;
 }
@@ -100,7 +101,7 @@ const [ifcReady, setIfcReady] = useState(false);
       }
     });
 
-    console.log(`Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (visible storeys: ${visibleStoreyIds === null ? 'all' : visibleStoreyIds.size})`);
+    console.log(`Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (visible storeys: ${visibleStoreyIds === null ? 'all' : visibleStoreyIds?.size ?? 0})`);
   }, [storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible]);
 
   // Initialize engine and scene
@@ -188,6 +189,12 @@ const [ifcReady, setIfcReady] = useState(false);
     setIsLoading(true)
     setError(null)
 
+    // Clear any existing element selection and highlights immediately
+    // This ensures the Element Info panel doesn't persist from previous model
+    if (onElementPicked) {
+      onElementPicked(null);
+    }
+
     try {
       // Dispose previous model
       if (sceneRef.current) {
@@ -232,11 +239,27 @@ const [ifcReady, setIfcReady] = useState(false);
         }
       }
 
+// Extract IFC GlobalId from IFCProject entity
+      let ifcGlobalId = "";
+      try {
+        // Get all IFCPROJECT elements
+        const projectIDs = ifcAPIRef.current.GetLineIDsWithType(model.modelID, WebIFC.IFCPROJECT);
+        if (projectIDs.size() > 0) {
+          const projectID = projectIDs.get(0);
+          const projectData = ifcAPIRef.current.GetLine(model.modelID, projectID, true);
+          ifcGlobalId = projectData.GlobalId?.value || "";
+        }
+      } catch (error) {
+        console.warn('Failed to extract IFC GlobalId:', error);
+        ifcGlobalId = `model_${model.modelID}`;
+      }
+
 // Notify parent component with full model data
       if (onModelLoaded && ifcAPIRef.current) {
         onModelLoaded({
           projectInfo,
           modelID: model.modelID,
+          ifcGlobalId,
           storeyMap: model.storeyMap,
           ifcAPI: ifcAPIRef.current,
         })

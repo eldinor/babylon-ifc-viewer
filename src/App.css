@@ -172,24 +172,24 @@
 
 .storey-elevation {
   font-size: 10px;
-  color: #888;
+  color: #aaa;
   font-weight: normal;
 }
 
 .storey-item.active .storey-elevation {
   color: #1a1a2e;
-  opacity: 0.7;
+  opacity: 0.8;
 }
 
 .storey-count {
   font-size: 10px;
-  color: #666;
+  color: #999;
   font-weight: normal;
 }
 
 .storey-item.active .storey-count {
   color: #1a1a2e;
-  opacity: 0.7;
+  opacity: 0.8;
 }
 
 /* Visibility button in storey item */

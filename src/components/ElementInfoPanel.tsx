@@ -5,9 +5,10 @@ import { CopyIcon } from "./Icons";
 interface ElementInfoPanelProps {
   elementInfo: ElementInfoData | null;
   onClose: () => void;
+  sidebarCollapsed: boolean;
 }
 
-function ElementInfoPanel({ elementInfo, onClose }: ElementInfoPanelProps) {
+function ElementInfoPanel({ elementInfo, onClose, sidebarCollapsed }: ElementInfoPanelProps) {
   const [copiedFieldLabel, setCopiedFieldLabel] = useState<string | null>(null);
   const [copyAllFormat, setCopyAllFormat] = useState<"text" | "json" | "markdown">("text");
   const [isAllCopied, setIsAllCopied] = useState(false);
@@ -86,7 +87,7 @@ function ElementInfoPanel({ elementInfo, onClose }: ElementInfoPanelProps) {
   if (!elementInfo) return null;
 
   return (
-    <div className="element-info-panel">
+    <div className={`element-info-panel ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <div className="element-info-header">
         <h3>Element Info</h3>
         <div className="element-info-actions">

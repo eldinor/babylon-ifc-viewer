@@ -79,6 +79,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;
+  z-index: 2;
 }
 
 .header-icon-btn {
@@ -97,6 +99,49 @@
 
 .header-icon-btn:hover {
   background-color: #16213e;
+}
+
+.header-icon-btn.active {
+  background-color: #0f3460;
+}
+
+.header-settings-wrap {
+  position: relative;
+}
+
+.settings-popover {
+  position: absolute;
+  top: 38px;
+  right: 0;
+  width: 210px;
+  background-color: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  padding: 10px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #cfe6ff;
+}
+
+.settings-row + .settings-row {
+  margin-top: 8px;
+}
+
+.settings-row input[type="color"] {
+  width: 34px;
+  height: 22px;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .main-container {
@@ -563,6 +608,10 @@
   flex-direction: column;
   animation: slideInRight 0.3s ease-out;
   transition: opacity 0.3s ease;
+}
+
+.element-info-panel.sidebar-collapsed {
+  left: 40px;
 }
 
 .element-info-header {

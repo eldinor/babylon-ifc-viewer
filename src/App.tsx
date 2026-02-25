@@ -12,6 +12,18 @@ import { collectSubtreeExpressIDs, type IfcProjectTreeIndex, type IfcProjectTree
 import type { ElementInfoData } from "./types/elementInfo";
 import { buildElementInfoFromPick, buildElementInfoFromProjectNode } from "./utils/elementInfoUtils";
 
+const STORAGE_KEYS = {
+  sceneBackgroundColor: "viewer.sceneBackgroundColor",
+  highlightColor: "viewer.highlightColor",
+} as const;
+
+const DEFAULT_SCENE_BACKGROUND = "#18003d";
+const DEFAULT_HIGHLIGHT = "#008080";
+
+function isHexColor(value: string | null): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectTreeIndexRef = useRef<IfcProjectTreeIndex | null>(null);
@@ -20,6 +32,14 @@ function App() {
   const [elementInfo, setElementInfo] = useState<ElementInfoData | null>(null);
   const [selectedProjectExpressID, setSelectedProjectExpressID] = useState<number | null>(null);
   const [visibleExpressIDs, setVisibleExpressIDs] = useState<Set<number> | null>(null);
+  const [sceneBackgroundColor, setSceneBackgroundColor] = useState<string>(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.sceneBackgroundColor);
+    return isHexColor(stored) ? stored : DEFAULT_SCENE_BACKGROUND;
+  });
+  const [highlightColor, setHighlightColor] = useState<string>(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.highlightColor);
+    return isHexColor(stored) ? stored : DEFAULT_HIGHLIGHT;
+  });
 
   const handleModelCleared = useCallback(() => {
     setElementInfo(null);
@@ -52,6 +72,16 @@ function App() {
 
   const handleOpenHelp = useCallback(() => {
     window.open("/user-guide.html", "_blank", "noopener,noreferrer");
+  }, []);
+
+  const handleSceneBackgroundColorChange = useCallback((color: string) => {
+    if (!isHexColor(color)) return;
+    setSceneBackgroundColor(color);
+  }, []);
+
+  const handleHighlightColorChange = useCallback((color: string) => {
+    if (!isHexColor(color)) return;
+    setHighlightColor(color);
   }, []);
 
   const handleFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
@@ -131,6 +161,14 @@ function App() {
     }
   }, [modelData?.lengthUnitSymbol]);
 
+  useLayoutEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.sceneBackgroundColor, sceneBackgroundColor);
+  }, [sceneBackgroundColor]);
+
+  useLayoutEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.highlightColor, highlightColor);
+  }, [highlightColor]);
+
   return (
     <div className="app">
       <AppHeader
@@ -140,9 +178,17 @@ function App() {
         onOpenHelp={handleOpenHelp}
         breadcrumbs={breadcrumbs}
         onBreadcrumbClick={handleBreadcrumbClick}
+        sceneBackgroundColor={sceneBackgroundColor}
+        highlightColor={highlightColor}
+        onSceneBackgroundColorChange={handleSceneBackgroundColorChange}
+        onHighlightColorChange={handleHighlightColorChange}
       />
 
-      <ElementInfoPanel elementInfo={elementInfo} onClose={() => setElementInfo(null)} />
+      <ElementInfoPanel
+        elementInfo={elementInfo}
+        onClose={() => setElementInfo(null)}
+        sidebarCollapsed={sidebarCollapsed}
+      />
 
       <div className="main-container">
         <Sidebar
@@ -164,6 +210,8 @@ function App() {
             onModelLoaded={handleModelLoaded}
             visibleExpressIDs={visibleExpressIDs}
             onElementPicked={handleElementPicked}
+            sceneBackgroundColor={sceneBackgroundColor}
+            highlightColor={highlightColor}
           />
         </main>
       </div>

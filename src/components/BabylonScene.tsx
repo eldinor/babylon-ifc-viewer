@@ -6,6 +6,7 @@ import {
   HemisphericLight,
   Vector3,
   Color3,
+  Color4,
 } from "@babylonjs/core";
 import {
   initializeWebIFC,
@@ -39,12 +40,24 @@ interface BabylonSceneProps {
   visibleExpressIDs?: Set<number> | null;
   /** Callback when an IFC element is picked */
   onElementPicked?: (data: ElementPickData | null) => void;
+  sceneBackgroundColor?: string;
+  highlightColor?: string;
+}
+
+function toColor4(hex: string): Color4 {
+  return Color4.FromHexString(`${hex}ff`);
+}
+
+function toColor3(hex: string): Color3 {
+  return Color3.FromHexString(hex);
 }
 
 function BabylonScene({
   onModelLoaded,
   visibleExpressIDs,
   onElementPicked,
+  sceneBackgroundColor = "#1b043e",
+  highlightColor = "#008080",
 }: BabylonSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -196,6 +209,16 @@ const [ifcReady, setIfcReady] = useState(false);
     }
   }, [])
 
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    sceneRef.current.clearColor = toColor4(sceneBackgroundColor);
+  }, [sceneBackgroundColor]);
+
+  useEffect(() => {
+    if (!pickingManagerRef.current) return;
+    pickingManagerRef.current.setHighlightOptions({ highlightColor: toColor3(highlightColor) });
+  }, [highlightColor]);
+
 // Function to load IFC file
   const loadIfcFile = useCallback(async (file: File | string) => {
     if (!ifcAPIRef.current || !sceneRef.current) {
@@ -293,6 +316,7 @@ const [ifcReady, setIfcReady] = useState(false);
       // Setup picking handler
       if (ifcAPIRef.current && sceneRef.current) {
         pickingManagerRef.current = setupPickingHandler(sceneRef.current, ifcAPIRef.current, {
+          highlightColor: toColor3(highlightColor),
           onElementPicked: (data) => {
             if (onElementPicked) {
               onElementPicked(data);
@@ -313,7 +337,7 @@ const [ifcReady, setIfcReady] = useState(false);
     } finally {
       setIsLoading(false)
     }
-  }, [buildDimensionsMap, onModelLoaded, onElementPicked])
+  }, [buildDimensionsMap, highlightColor, onModelLoaded, onElementPicked])
 
   // Handle file input
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {

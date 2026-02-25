@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, RefObject } from "react";
 import { FolderOpenIcon, HelpIcon, SettingsIcon } from "./Icons";
 
@@ -13,6 +14,10 @@ interface AppHeaderProps {
   onOpenHelp: () => void;
   breadcrumbs: HeaderBreadcrumbItem[];
   onBreadcrumbClick: (expressID: number) => void;
+  sceneBackgroundColor: string;
+  highlightColor: string;
+  onSceneBackgroundColorChange: (color: string) => void;
+  onHighlightColorChange: (color: string) => void;
 }
 
 function AppHeader({
@@ -22,7 +27,25 @@ function AppHeader({
   onOpenHelp,
   breadcrumbs,
   onBreadcrumbClick,
+  sceneBackgroundColor,
+  highlightColor,
+  onSceneBackgroundColorChange,
+  onHighlightColorChange,
 }: AppHeaderProps) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && settingsRef.current?.contains(target)) return;
+      setSettingsOpen(false);
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [settingsOpen]);
+
   return (
     <header className="header">
       <span className="header-title">Babylon.js IFC Viewer</span>
@@ -53,9 +76,35 @@ function AppHeader({
           <FolderOpenIcon />
           <span>Open IFC</span>
         </button>
-        <button className="header-icon-btn" title="Settings">
-          <SettingsIcon />
-        </button>
+        <div className="header-settings-wrap" ref={settingsRef}>
+          <button
+            className={`header-icon-btn ${settingsOpen ? "active" : ""}`}
+            title="Settings"
+            onClick={() => setSettingsOpen((prev) => !prev)}
+          >
+            <SettingsIcon />
+          </button>
+          {settingsOpen && (
+            <div className="settings-popover">
+              <label className="settings-row">
+                <span>Scene Background</span>
+                <input
+                  type="color"
+                  value={sceneBackgroundColor}
+                  onChange={(event) => onSceneBackgroundColorChange(event.target.value)}
+                />
+              </label>
+              <label className="settings-row">
+                <span>Highlight</span>
+                <input
+                  type="color"
+                  value={highlightColor}
+                  onChange={(event) => onHighlightColorChange(event.target.value)}
+                />
+              </label>
+            </div>
+          )}
+        </div>
         <button className="header-icon-btn" title="Help" onClick={onOpenHelp}>
           <HelpIcon />
         </button>

@@ -54,6 +54,7 @@ interface BabylonSceneProps {
   highlightColor?: string;
   sectionState?: { enabled: boolean; axis: SectionAxis; position: number | null; inverted: boolean };
   pickMode?: PickMode;
+  pickingEnabled?: boolean;
   measurePinnedFirstExpressID?: number | null;
 }
 
@@ -128,6 +129,7 @@ function BabylonScene({
   highlightColor = "#008080",
   sectionState,
   pickMode = "select",
+  pickingEnabled = true,
   measurePinnedFirstExpressID = null,
 }: BabylonSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -302,6 +304,11 @@ const [ifcReady, setIfcReady] = useState(false);
     if (!pickingManagerRef.current) return;
     pickingManagerRef.current.setHighlightOptions({ highlightColor: toColor3(highlightColor) });
   }, [highlightColor]);
+
+  useEffect(() => {
+    if (!pickingManagerRef.current) return;
+    pickingManagerRef.current.setEnabled(pickingEnabled);
+  }, [pickingEnabled]);
 
   useEffect(() => {
     const manager = pickingManagerRef.current;

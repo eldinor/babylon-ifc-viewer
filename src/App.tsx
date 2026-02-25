@@ -40,7 +40,7 @@ function isSectionAxis(value: string | null): value is SectionAxis {
 }
 
 function isPickMode(value: string | null): value is PickMode {
-  return value === "select" || value === "isolate" || value === "measure" || value === "inspect";
+  return value === "select" || value === "isolate" || value === "measure" || value === "inspect" || value === "explore";
 }
 
 function readStorageBool(key: string, fallback: boolean): boolean {
@@ -632,6 +632,7 @@ function App() {
             highlightColor={highlightColor}
             sectionState={{ enabled: sectionEnabled, axis: sectionAxis, position: sectionPosition, inverted: sectionInverted }}
             pickMode={pickMode}
+            pickingEnabled={pickMode !== "explore"}
             measurePinnedFirstExpressID={measurePinnedFirstExpressID}
           />
         </main>

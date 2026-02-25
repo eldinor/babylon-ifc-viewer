@@ -54,6 +54,7 @@ export class PickingManager {
   private options: PickingOptions;
   private pointerObserver: Observer<PointerInfo> | null = null;
   private pointerDoubleObserver: Observer<PointerInfo> | null = null;
+  private enabled = true;
 
   constructor(scene: Scene, ifcAPI: WebIFC.IfcAPI, options?: PickingOptions) {
     this.scene = scene;
@@ -72,6 +73,7 @@ export class PickingManager {
    */
   private setupPointerEvents(): void {
     this.pointerObserver = this.scene.onPointerObservable.add((pointerInfo: PointerInfo) => {
+      if (!this.enabled) return;
       const evt = pointerInfo.event;
 
       // Only handle left click
@@ -86,6 +88,7 @@ export class PickingManager {
     }, PointerEventTypes.POINTERDOWN);
 
     this.pointerDoubleObserver = this.scene.onPointerObservable.add((pointerInfo: PointerInfo) => {
+      if (!this.enabled) return;
       const evt = pointerInfo.event;
       if (evt.button !== 0) return;
 
@@ -257,6 +260,13 @@ export class PickingManager {
     mesh.overlayColor = options?.highlightColor || this.options.highlightColor!;
     mesh.overlayAlpha = options?.highlightAlpha || this.options.highlightAlpha!;
     this.persistentHighlightedMesh = mesh;
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) {
+      this.clearHighlight();
+    }
   }
 
   /**

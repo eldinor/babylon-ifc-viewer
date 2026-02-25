@@ -114,6 +114,7 @@ function AppHeader({
             type="button"
             className={`pick-mode-btn ${pickMode === "select" ? "active" : ""}`}
             onClick={() => onPickModeChange("select")}
+            title="Select: pick element and sync with project tree context"
           >
             Select
           </button>
@@ -122,6 +123,7 @@ function AppHeader({
             className={`pick-mode-btn ${pickMode === "isolate" ? "active" : ""}`}
             onClick={() => onPickModeChange("isolate")}
             onDoubleClick={onIsolateModeDoubleClick}
+            title="Isolate: show picked element/subtree only (double-click expands to parent scope)"
           >
             Isolate
           </button>
@@ -129,6 +131,7 @@ function AppHeader({
             type="button"
             className={`pick-mode-btn ${pickMode === "measure" ? "active" : ""}`}
             onClick={() => onPickModeChange("measure")}
+            title="Measure: pick two elements to measure distance and dX/dY/dZ"
           >
             Measure
           </button>
@@ -136,8 +139,17 @@ function AppHeader({
             type="button"
             className={`pick-mode-btn ${pickMode === "inspect" ? "active" : ""}`}
             onClick={() => onPickModeChange("inspect")}
+            title="Inspect: view element info without isolate/select tree behavior"
           >
             Inspect
+          </button>
+          <button
+            type="button"
+            className={`pick-mode-btn ${pickMode === "explore" ? "active" : ""}`}
+            onClick={() => onPickModeChange("explore")}
+            title="Explore: disable mesh picking for free camera navigation"
+          >
+            Explore
           </button>
           <div className="clip-control-group">
             <div className="clip-popover-wrap" ref={clipRef}>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, RefObject } from "react";
+import type { PickMode } from "../types/app";
 import { FolderOpenIcon, HelpIcon, SettingsIcon } from "./Icons";
 
 interface HeaderBreadcrumbItem {
@@ -12,6 +13,8 @@ interface AppHeaderProps {
   onOpenIfc: () => void;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenHelp: () => void;
+  pickMode: PickMode;
+  onPickModeChange: (mode: PickMode) => void;
   breadcrumbs: HeaderBreadcrumbItem[];
   onBreadcrumbClick: (expressID: number) => void;
   onBreadcrumbFit: (expressID: number) => void;
@@ -27,6 +30,8 @@ function AppHeader({
   onOpenIfc,
   onFileChange,
   onOpenHelp,
+  pickMode,
+  onPickModeChange,
   breadcrumbs,
   onBreadcrumbClick,
   onBreadcrumbFit,
@@ -77,6 +82,36 @@ function AppHeader({
         )}
       </span>
       <div className="header-icons">
+        <div className="pick-mode-toggle" title="Scene pick mode">
+          <button
+            type="button"
+            className={`pick-mode-btn ${pickMode === "select" ? "active" : ""}`}
+            onClick={() => onPickModeChange("select")}
+          >
+            Select
+          </button>
+          <button
+            type="button"
+            className={`pick-mode-btn ${pickMode === "isolate" ? "active" : ""}`}
+            onClick={() => onPickModeChange("isolate")}
+          >
+            Isolate
+          </button>
+          <button
+            type="button"
+            className={`pick-mode-btn ${pickMode === "measure" ? "active" : ""}`}
+            onClick={() => onPickModeChange("measure")}
+          >
+            Measure
+          </button>
+          <button
+            type="button"
+            className={`pick-mode-btn ${pickMode === "inspect" ? "active" : ""}`}
+            onClick={() => onPickModeChange("inspect")}
+          >
+            Inspect
+          </button>
+        </div>
         <button className="open-ifc-btn" onClick={onOpenIfc} title="Open IFC File">
           <FolderOpenIcon />
           <span>Open IFC</span>

@@ -7,7 +7,7 @@ import ElementInfoPanel from "./components/ElementInfoPanel";
 import Sidebar from "./components/Sidebar";
 import { useModelData } from "./hooks/useModelData";
 import type { ElementPickData } from "./utils/pickingUtils";
-import type { TabType } from "./types/app";
+import type { PickMode, TabType } from "./types/app";
 import { collectSubtreeExpressIDs, type IfcProjectTreeIndex, type IfcProjectTreeNode } from "./utils/projectTreeUtils";
 import type { ElementInfoData } from "./types/elementInfo";
 import { buildElementInfoFromPick, buildElementInfoFromProjectNode } from "./utils/elementInfoUtils";
@@ -30,16 +30,31 @@ function formatFileSizeMb(sizeBytes: number | null): string {
   return `${mb.toFixed(2)} MB`;
 }
 
+function formatLength(value: number, unitSymbol: string): string {
+  const rounded = Math.round(value * 1000) / 1000;
+  const raw = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(3).replace(/\.?0+$/, "");
+  return `${raw} ${unitSymbol}`;
+}
+
+function getPickedCenter(data: ElementPickData): { x: number; y: number; z: number } | null {
+  const center = data.mesh.getBoundingInfo()?.boundingBox.centerWorld;
+  if (!center) return null;
+  if (![center.x, center.y, center.z].every(Number.isFinite)) return null;
+  return { x: center.x, y: center.y, z: center.z };
+}
+
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectTreeIndexRef = useRef<IfcProjectTreeIndex | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>("project");
+  const [pickMode, setPickMode] = useState<PickMode>("select");
   const [elementInfo, setElementInfo] = useState<ElementInfoData | null>(null);
   const [selectedProjectExpressID, setSelectedProjectExpressID] = useState<number | null>(null);
   const [visibleExpressIDs, setVisibleExpressIDs] = useState<Set<number> | null>(null);
   const [alwaysFitEnabled, setAlwaysFitEnabled] = useState(false);
   const [canRestoreView, setCanRestoreView] = useState(false);
+  const [measureStart, setMeasureStart] = useState<{ expressID: number; center: { x: number; y: number; z: number } } | null>(null);
   const [sceneBackgroundColor, setSceneBackgroundColor] = useState<string>(() => {
     const stored = localStorage.getItem(STORAGE_KEYS.sceneBackgroundColor);
     return isHexColor(stored) ? stored : DEFAULT_SCENE_BACKGROUND;
@@ -90,6 +105,13 @@ function App() {
     window.open("/user-guide.html", "_blank", "noopener,noreferrer");
   }, []);
 
+  const handlePickModeChange = useCallback((mode: PickMode) => {
+    setPickMode(mode);
+    if (mode !== "measure") {
+      setMeasureStart(null);
+    }
+  }, []);
+
   const handleSceneBackgroundColorChange = useCallback((color: string) => {
     if (!isHexColor(color)) return;
     setSceneBackgroundColor(color);
@@ -121,6 +143,7 @@ function App() {
       setSelectedProjectExpressID(null);
       setVisibleExpressIDs(null);
       setElementInfo(null);
+      setMeasureStart(null);
       setActiveTab("project");
     },
     [setModelData],
@@ -206,6 +229,77 @@ function App() {
       setElementInfo(null);
       return;
     }
+
+    if (pickMode === "measure") {
+      const center = getPickedCenter(data);
+      if (!center) return;
+      const unitSymbol = modelData?.lengthUnitSymbol ?? "m";
+
+      if (!measureStart) {
+        setMeasureStart({ expressID: data.expressID, center });
+        setElementInfo({
+          source: "scene",
+          expressID: data.expressID,
+          fields: [
+            { label: "Mode", value: "Measure" },
+            { label: "Start Express ID", value: String(data.expressID) },
+            { label: "Status", value: "Pick second element" },
+          ],
+        });
+        return;
+      }
+
+      const dx = center.x - measureStart.center.x;
+      const dy = center.y - measureStart.center.y;
+      const dz = center.z - measureStart.center.z;
+      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      setElementInfo({
+        source: "scene",
+        expressID: data.expressID,
+        fields: [
+          { label: "Mode", value: "Measure" },
+          { label: "Start Express ID", value: String(measureStart.expressID) },
+          { label: "End Express ID", value: String(data.expressID) },
+          { label: "Distance", value: formatLength(distance, unitSymbol) },
+          { label: "dX", value: formatLength(dx, unitSymbol) },
+          { label: "dY", value: formatLength(dy, unitSymbol) },
+          { label: "dZ", value: formatLength(dz, unitSymbol) },
+        ],
+      });
+      setMeasureStart(null);
+      return;
+    }
+
+    if (pickMode === "inspect") {
+      setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
+      return;
+    }
+
+    if (pickMode === "isolate") {
+      if (!modelData || !projectTreeIndex) {
+        setVisibleExpressIDs(new Set([data.expressID]));
+        if (alwaysFitEnabled && window.fitToExpressIDs) {
+          window.fitToExpressIDs([data.expressID]);
+        }
+        setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
+        return;
+      }
+
+      const node = projectTreeIndex.nodes.get(data.expressID) ?? null;
+      if (node) {
+        handleSelectProjectNode(node);
+        return;
+      }
+
+      setSelectedProjectExpressID(null);
+      setVisibleExpressIDs(new Set([data.expressID]));
+      if (alwaysFitEnabled && window.fitToExpressIDs) {
+        window.fitToExpressIDs([data.expressID]);
+      }
+      setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData.lengthUnitSymbol }));
+      return;
+    }
+
     if (!modelData || !projectTreeIndex) {
       setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
       return;
@@ -240,7 +334,7 @@ function App() {
       window.fitToExpressIDs([data.expressID]);
     }
     setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData.lengthUnitSymbol }));
-  }, [alwaysFitEnabled, handleFitProjectNode, modelData, projectTreeIndex]);
+  }, [alwaysFitEnabled, handleFitProjectNode, handleSelectProjectNode, measureStart, modelData, pickMode, projectTreeIndex]);
 
   useLayoutEffect(() => {
     localStorage.setItem(STORAGE_KEYS.sceneBackgroundColor, sceneBackgroundColor);
@@ -257,6 +351,8 @@ function App() {
         onOpenIfc={handleOpenIfc}
         onFileChange={handleFileChange}
         onOpenHelp={handleOpenHelp}
+        pickMode={pickMode}
+        onPickModeChange={handlePickModeChange}
         breadcrumbs={breadcrumbs}
         onBreadcrumbClick={handleBreadcrumbClick}
         onBreadcrumbFit={handleBreadcrumbFit}

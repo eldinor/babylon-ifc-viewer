@@ -83,6 +83,37 @@
   z-index: 2;
 }
 
+.pick-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #1a1a2e;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.pick-mode-btn {
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  background-color: #0f3460;
+  color: #9fb5cb;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.pick-mode-btn + .pick-mode-btn {
+  border-left: 1px solid #1a1a2e;
+}
+
+.pick-mode-btn.active {
+  background-color: #1f6f3d;
+  color: #eafff2;
+}
+
+.pick-mode-btn:hover {
+  filter: brightness(1.08);
+}
+
 .header-icon-btn {
   width: 32px;
   height: 32px;

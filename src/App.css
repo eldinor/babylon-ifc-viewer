@@ -239,34 +239,7 @@
   border-left: 3px solid #4fc3f7;
 }
 
-.storey-item.site-item.active {
-  background-color: #1a1a2e;
-  color: white;
-  font-weight: 600;
-  border-left-color: #2979ff;
-  box-shadow: inset 0 0 0 1px rgba(41, 121, 255, 0.3);
-}
-
-.storey-item.site-item.active:hover {
-  background-color: #2a2a3e;
-}
-
-.storey-item.site-item.active .storey-elevation,
-.storey-item.site-item.active .storey-count {
-  color: #ccc;
-  opacity: 1;
-}
-
-.storey-item.site-item.active .visibility-btn {
-  color: white;
-}
-
-.storey-item.site-item.active .visibility-btn:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  color: white;
-}
-
-/* Site visible state styling (when eye icon is opened) */
+.storey-item.site-item.active,
 .storey-item.site-item.site-visible {
   background-color: #1a1a2e;
   color: white;
@@ -275,20 +248,25 @@
   box-shadow: inset 0 0 0 1px rgba(41, 121, 255, 0.3);
 }
 
+.storey-item.site-item.active:hover,
 .storey-item.site-item.site-visible:hover {
   background-color: #2a2a3e;
 }
 
+.storey-item.site-item.active .storey-elevation,
+.storey-item.site-item.active .storey-count,
 .storey-item.site-item.site-visible .storey-elevation,
 .storey-item.site-item.site-visible .storey-count {
   color: #ccc;
   opacity: 1;
 }
 
+.storey-item.site-item.active .visibility-btn,
 .storey-item.site-item.site-visible .visibility-btn {
   color: white;
 }
 
+.storey-item.site-item.active .visibility-btn:hover,
 .storey-item.site-item.site-visible .visibility-btn:hover {
   background-color: rgba(255, 255, 255, 0.1);
   color: white;
@@ -345,11 +323,29 @@
   background-color: #0f3460;
 }
 
+.tree-item.selected {
+  background-color: #0f3460;
+  box-shadow: inset 0 0 0 1px rgba(79, 195, 247, 0.35);
+}
+
 .tree-expand {
-  font-size: 8px;
+  font-size: 14px;
   color: #888;
-  width: 12px;
+  width: 20px;
+  height: 20px;
   text-align: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tree-expand:disabled {
+  cursor: default;
 }
 
 .tree-name {
@@ -357,9 +353,13 @@
 }
 
 .tree-children {
-  margin-left: 16px;
+  margin-left: 8px;
   border-left: 1px solid #0f3460;
-  padding-left: 4px;
+  padding-left: 2px;
+}
+
+.tree-item.active {
+  outline: 1px solid rgba(79, 195, 247, 0.25);
 }
 
 .sidebar-footer {

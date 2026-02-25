@@ -41,11 +41,21 @@ interface BabylonSceneProps {
   visibleStoreyIds?: Set<number> | null;
   /** Whether the site should be visible */
   isSiteVisible?: boolean;
+  /** Explicit element express IDs visibility filter (overrides storey/site filters when set) */
+  visibleExpressIDs?: Set<number> | null;
   /** Callback when an IFC element is picked */
   onElementPicked?: (data: ElementPickData | null) => void;
 }
 
-function BabylonScene({ onModelLoaded, storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible, onElementPicked }: BabylonSceneProps) {
+function BabylonScene({
+  onModelLoaded,
+  storeyMap,
+  siteExpressId,
+  visibleStoreyIds,
+  isSiteVisible,
+  visibleExpressIDs,
+  onElementPicked,
+}: BabylonSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const sceneRef = useRef<Scene | null>(null);
@@ -66,6 +76,19 @@ const [ifcReady, setIfcReady] = useState(false);
     meshes.forEach((mesh) => {
       if (mesh.metadata?.expressID !== undefined) {
         const meshStoreyId = storeyMap?.get(mesh.metadata.expressID);
+
+        // Explicit subtree selection filter from ProjectTree has highest priority
+        if (visibleExpressIDs) {
+          const shouldShow = visibleExpressIDs.has(mesh.metadata.expressID);
+          mesh.isVisible = shouldShow;
+          mesh.setEnabled(shouldShow);
+          if (shouldShow) {
+            visibleCount++;
+          } else {
+            hiddenCount++;
+          }
+          return;
+        }
 
         // Determine visibility based on visibleStoreyIds
         let shouldShow = true;
@@ -101,8 +124,10 @@ const [ifcReady, setIfcReady] = useState(false);
       }
     });
 
-    console.log(`Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (visible storeys: ${visibleStoreyIds === null ? 'all' : visibleStoreyIds?.size ?? 0})`);
-  }, [storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible]);
+    console.log(
+      `Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (project subtree: ${visibleExpressIDs ? visibleExpressIDs.size : "off"}, visible storeys: ${visibleStoreyIds === null ? "all" : visibleStoreyIds?.size ?? 0})`,
+    );
+  }, [storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible, visibleExpressIDs]);
 
   // Initialize engine and scene
   useEffect(() => {
@@ -318,10 +343,9 @@ const [ifcReady, setIfcReady] = useState(false);
 
   // Expose loadIfcFile function globally for parent components
   useEffect(() => {
-    const win = window as unknown as { loadIfcFile?: (file: File | string) => Promise<void> }
-    win.loadIfcFile = loadIfcFile
+    window.loadIfcFile = loadIfcFile
     return () => {
-      delete win.loadIfcFile
+      delete window.loadIfcFile
     }
   }, [loadIfcFile])
 

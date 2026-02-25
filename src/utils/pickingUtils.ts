@@ -1,5 +1,24 @@
-import { Scene, AbstractMesh, Color3, PointerEventTypes, PointerInfo } from "@babylonjs/core";
+import { Scene, AbstractMesh, Color3, PointerEventTypes } from "@babylonjs/core";
+import type { PointerInfo } from "@babylonjs/core/Events/pointerEvents";
+import type { Observer } from "@babylonjs/core/Misc/observable";
 import * as WebIFC from "web-ifc";
+
+interface IfcElement {
+  type?: number;
+  Name?: { value?: string };
+  [key: string]: unknown;
+}
+
+interface IfcMeshMetadata {
+  expressID: number;
+  modelID: number;
+}
+
+function isIfcMeshMetadata(metadata: unknown): metadata is IfcMeshMetadata {
+  if (!metadata || typeof metadata !== "object") return false;
+  const candidate = metadata as Partial<IfcMeshMetadata>;
+  return Number.isFinite(candidate.expressID) && Number.isFinite(candidate.modelID);
+}
 
 /**
  * Information about a picked IFC element
@@ -10,7 +29,7 @@ export interface ElementPickData {
   modelID: number;
   typeName: string;
   elementName: string;
-  element: typeof WebIFC.IFCLINE;
+  element: IfcElement;
 }
 
 /**
@@ -31,6 +50,7 @@ export class PickingManager {
   private ifcAPI: WebIFC.IfcAPI;
   private currentHighlightedMesh: AbstractMesh | null = null;
   private options: PickingOptions;
+  private pointerObserver: Observer<PointerInfo> | null = null;
 
   constructor(scene: Scene, ifcAPI: WebIFC.IfcAPI, options?: PickingOptions) {
     this.scene = scene;
@@ -48,7 +68,7 @@ export class PickingManager {
    * Setup pointer event handling
    */
   private setupPointerEvents(): void {
-    this.scene.onPointerObservable.add((pointerInfo: PointerInfo) => {
+    this.pointerObserver = this.scene.onPointerObservable.add((pointerInfo: PointerInfo) => {
       const evt = pointerInfo.event;
       const pickResult = pointerInfo.pickInfo;
 
@@ -67,16 +87,17 @@ export class PickingManager {
    * Handle mesh click event
    */
   private handleMeshClick(mesh: AbstractMesh): void {
-    const metadata = mesh.metadata;
+    const metadata = mesh.metadata as unknown;
 
-    if (metadata && metadata.expressID !== undefined && metadata.modelID !== undefined) {
+    if (isIfcMeshMetadata(metadata)) {
       const expressID = metadata.expressID;
       const modelID = metadata.modelID;
 
       try {
         // Fetch full element data
-        const element = this.ifcAPI.GetLine(modelID, expressID, true);
-        const typeName = this.ifcAPI.GetNameFromTypeCode(element.type);
+        const element = this.ifcAPI.GetLine(modelID, expressID, true) as IfcElement;
+        const typeName =
+          typeof element.type === "number" ? this.ifcAPI.GetNameFromTypeCode(element.type) : "Unknown";
         const elementName = element.Name?.value || "Unnamed";
 
         // Remove previous highlight
@@ -116,9 +137,9 @@ export class PickingManager {
     // Clear current highlight
     this.clearHighlight();
 
-    const metadata = mesh.metadata;
+    const metadata = mesh.metadata as unknown;
 
-    if (metadata && metadata.expressID !== undefined && metadata.modelID !== undefined) {
+    if (isIfcMeshMetadata(metadata)) {
       // Apply highlight
       mesh.renderOverlay = true;
       mesh.overlayColor = options?.highlightColor || this.options.highlightColor!;
@@ -161,6 +182,17 @@ export class PickingManager {
   getCurrentHighlightedMesh(): AbstractMesh | null {
     return this.currentHighlightedMesh;
   }
+
+  /**
+   * Dispose pointer observer and clear active highlight
+   */
+  dispose(): void {
+    this.clearHighlight();
+    if (this.pointerObserver) {
+      this.scene.onPointerObservable.remove(this.pointerObserver);
+      this.pointerObserver = null;
+    }
+  }
 }
 
 /**
@@ -168,22 +200,4 @@ export class PickingManager {
  */
 export function setupPickingHandler(scene: Scene, ifcAPI: WebIFC.IfcAPI, options?: PickingOptions): PickingManager {
   return new PickingManager(scene, ifcAPI, options);
-}
-
-/**
- * Clear current highlight
- */
-export function clearHighlight(): void {
-  console.warn(
-    "clearHighlight function requires a PickingManager instance. Use the method on the PickingManager class instead.",
-  );
-}
-
-/**
- * Set highlight options
- */
-export function setHighlightOptions(): void {
-  console.warn(
-    "setHighlightOptions function requires a PickingManager instance. Use the method on the PickingManager class instead.",
-  );
 }

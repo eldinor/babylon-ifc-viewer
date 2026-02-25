@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { IfcProjectTreeIndex, IfcProjectTreeNode } from "../../utils/projectTreeUtils";
 
 interface ProjectTabProps {
@@ -15,6 +15,7 @@ interface VisibleNode {
 function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabProps) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set(treeIndex?.roots ?? []));
   const [activeExpressID, setActiveExpressID] = useState<number | null>(() => treeIndex?.roots[0] ?? null);
+  const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const effectiveExpandedIds = useMemo(() => {
     if (!treeIndex || selectedExpressID === null) return expandedIds;
@@ -49,6 +50,13 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
     () => visibleNodes.findIndex((item) => item.expressID === effectiveActiveExpressID),
     [effectiveActiveExpressID, visibleNodes],
   );
+
+  useEffect(() => {
+    if (selectedExpressID === null) return;
+    const row = rowRefs.current.get(selectedExpressID);
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest" });
+  }, [selectedExpressID, visibleNodes.length]);
 
   const toggleExpand = (expressID: number) => {
     setExpandedIds((prev) => {
@@ -158,6 +166,13 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
               <div
                 className={`tree-item ${isSelected ? "selected" : ""} ${isActive ? "active" : ""}`}
                 onClick={() => handleNodeClick(expressID)}
+                ref={(el) => {
+                  if (el) {
+                    rowRefs.current.set(expressID, el);
+                  } else {
+                    rowRefs.current.delete(expressID);
+                  }
+                }}
               >
                 <button
                   className="tree-expand"

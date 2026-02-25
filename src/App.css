@@ -614,9 +614,42 @@
   color: #4fc3f7;
 }
 
+.element-info-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.copy-format-select {
+  height: 24px;
+  width: 102px;
+  background-color: #0f3460;
+  color: white;
+  border: 1px solid #1a1a2e;
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 0 18px 0 6px;
+}
+
+.copy-all-btn {
+  height: 24px;
+  padding: 0 8px;
+  background-color: #0f3460;
+  color: white;
+  border: 1px solid #1a1a2e;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.copy-all-btn:hover {
+  background-color: #1a1a2e;
+}
+
 .close-info-btn {
   width: 24px;
   height: 24px;
+  margin-right: 6px;
   background-color: transparent;
   border: none;
   border-radius: 4px;

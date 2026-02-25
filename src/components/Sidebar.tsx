@@ -17,6 +17,7 @@ interface SidebarProps {
   onToggleSidebar: () => void;
   onSetTab: (tab: TabType) => void;
   onSelectProjectNode: (node: IfcProjectTreeNode | null) => void;
+  onDisplaySearchResults: (expressIDs: number[]) => void;
   onFitProjectNode: (node: IfcProjectTreeNode | null) => void;
   onManualFitProjectNode: (node: IfcProjectTreeNode | null) => void;
   onRestoreView: () => void;
@@ -38,6 +39,7 @@ function Sidebar({
   onToggleSidebar,
   onSetTab,
   onSelectProjectNode,
+  onDisplaySearchResults,
   onFitProjectNode,
   onManualFitProjectNode,
   onRestoreView,
@@ -74,6 +76,7 @@ function Sidebar({
             selectedExpressID={selectedProjectExpressID}
             lengthUnitSymbol={lengthUnitSymbol}
             onSelectNode={onSelectProjectNode}
+            onDisplaySearchResults={onDisplaySearchResults}
             onFitNode={onFitProjectNode}
             onManualFitNode={onManualFitProjectNode}
             onRestoreView={onRestoreView}

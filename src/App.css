@@ -117,6 +117,53 @@
 
 .clip-popover-wrap {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.clip-control-group {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 12px;
+  border-left: 1px solid #1a1a2e;
+  padding-left: 10px;
+}
+
+.clip-inline-indicator {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-left: 1px solid #1a1a2e;
+  background-color: #0f3460;
+  color: #cfe6ff;
+  font-size: 11px;
+  white-space: nowrap;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  cursor: pointer;
+}
+
+.clip-inline-indicator:hover {
+  background-color: #1a1a2e;
+}
+
+.clip-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.clip-status-dot.on {
+  background-color: #ff3b30;
+  box-shadow: 0 0 6px rgba(255, 59, 48, 0.8);
+}
+
+.clip-status-dot.off {
+  background-color: #5b6b7a;
 }
 
 .clip-popover {
@@ -557,6 +604,16 @@
   font-size: 11px;
   padding: 0 8px;
   cursor: pointer;
+}
+
+.tree-search-nav-btn {
+  background-color: #18486f;
+  border-color: #24608f;
+  color: #e6f5ff;
+}
+
+.tree-search-nav-btn:hover:not(:disabled) {
+  background-color: #1f5d8f;
 }
 
 .tree-search-btn:disabled {

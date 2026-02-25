@@ -204,6 +204,12 @@ function App() {
     setVisibleExpressIDs(null);
   }, []);
 
+  const handleDisplaySearchResults = useCallback((expressIDs: number[]) => {
+    if (expressIDs.length === 0) return;
+    setVisibleExpressIDs(new Set(expressIDs));
+    setSelectedProjectExpressID(null);
+  }, []);
+
   const handleSelectProjectNode = useCallback((node: IfcProjectTreeNode | null) => {
     if (!node) {
       clearProjectTreeSelection();
@@ -451,6 +457,7 @@ function App() {
           onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
           onSetTab={setActiveTab}
           onSelectProjectNode={handleSelectProjectNode}
+          onDisplaySearchResults={handleDisplaySearchResults}
           onFitProjectNode={handleFitProjectNode}
           onManualFitProjectNode={handleManualFitProjectNode}
           onRestoreView={handleRestoreView}

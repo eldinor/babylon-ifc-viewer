@@ -132,20 +132,30 @@ function AppHeader({
           >
             Inspect
           </button>
-          <div className="clip-popover-wrap" ref={clipRef}>
-            <button
-              type="button"
-              className={`pick-mode-btn ${clipOpen ? "active" : ""}`}
+          <div className="clip-control-group">
+            <div className="clip-popover-wrap" ref={clipRef}>
+              <button
+                type="button"
+                className={`pick-mode-btn ${clipOpen ? "active" : ""}`}
               onClick={() => {
                 setClipOpen((prev) => !prev);
                 setSettingsOpen(false);
               }}
               title="Clip settings"
-            >
-              Clip
-            </button>
-            {clipOpen && (
-              <div className="clip-popover">
+              >
+                Clip
+              </button>
+              <button
+                type="button"
+                className="clip-inline-indicator"
+                title={sectionEnabled ? "Disable clip" : "Enable clip"}
+                onClick={() => onSectionEnabledChange(!sectionEnabled)}
+              >
+                <span className={`clip-status-dot ${sectionEnabled ? "on" : "off"}`} />
+                {sectionEnabled ? `${sectionAxis.toUpperCase()} ${sectionPercent}%` : "Off"}
+              </button>
+              {clipOpen && (
+                <div className="clip-popover">
                 <div className="settings-section-head">
                   <span>Section</span>
                   <label className="settings-switch">
@@ -193,7 +203,8 @@ function AppHeader({
                   Reset section
                 </button>
               </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
         <button className="open-ifc-btn" onClick={onOpenIfc} title="Open IFC File">

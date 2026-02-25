@@ -1,4 +1,4 @@
-import { Scene, AbstractMesh, Color3, PointerEventTypes } from "@babylonjs/core";
+import { Scene, AbstractMesh, Color3, PointerEventTypes, Plane, Vector3 } from "@babylonjs/core";
 import type { PointerInfo } from "@babylonjs/core/Events/pointerEvents";
 import type { Observer } from "@babylonjs/core/Misc/observable";
 import * as WebIFC from "web-ifc";
@@ -70,17 +70,54 @@ export class PickingManager {
   private setupPointerEvents(): void {
     this.pointerObserver = this.scene.onPointerObservable.add((pointerInfo: PointerInfo) => {
       const evt = pointerInfo.event;
-      const pickResult = pointerInfo.pickInfo;
 
       // Only handle left click
       if (evt.button !== 0) return;
 
-      if (pickResult?.hit && pickResult.pickedMesh) {
-        this.handleMeshClick(pickResult.pickedMesh);
+      const resolvedMesh = this.resolveVisiblePick(pointerInfo);
+      if (resolvedMesh) {
+        this.handleMeshClick(resolvedMesh);
       } else {
         this.clearHighlight();
       }
     }, PointerEventTypes.POINTERDOWN);
+  }
+
+  private getActiveClipPlanes(): Plane[] {
+    const planes = [
+      this.scene.clipPlane,
+      this.scene.clipPlane2,
+      this.scene.clipPlane3,
+      this.scene.clipPlane4,
+      this.scene.clipPlane5,
+      this.scene.clipPlane6,
+    ];
+    return planes.filter((plane): plane is Plane => !!plane);
+  }
+
+  private isPointClipped(point: Vector3): boolean {
+    const clipPlanes = this.getActiveClipPlanes();
+    if (clipPlanes.length === 0) return false;
+    // Babylon clip planes discard fragments where signed distance is positive.
+    return clipPlanes.some((plane) => plane.dotCoordinate(point) > 0);
+  }
+
+  private resolveVisiblePick(pointerInfo: PointerInfo): AbstractMesh | null {
+    const firstPick = pointerInfo.pickInfo;
+    if (firstPick?.hit && firstPick.pickedMesh && firstPick.pickedPoint && !this.isPointClipped(firstPick.pickedPoint)) {
+      return firstPick.pickedMesh;
+    }
+
+    const allHits = this.scene.multiPick(this.scene.pointerX, this.scene.pointerY);
+    if (!allHits || allHits.length === 0) return null;
+
+    for (const hit of allHits) {
+      if (!hit.hit || !hit.pickedMesh || !hit.pickedPoint) continue;
+      if (this.isPointClipped(hit.pickedPoint)) continue;
+      return hit.pickedMesh;
+    }
+
+    return null;
   }
 
   /**

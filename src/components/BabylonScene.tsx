@@ -8,6 +8,7 @@ import {
   Color3,
   Color4,
   Plane,
+  Material,
 } from "@babylonjs/core";
 import type { SectionAxis } from "../types/app";
 import {
@@ -298,18 +299,24 @@ const [ifcReady, setIfcReady] = useState(false);
     if (!scene) return;
     if (!sectionState?.enabled || sectionState.position === null) {
       scene.clipPlane = null;
-      return;
+    } else if (sectionState.axis === "x") {
+      scene.clipPlane = new Plane(1, 0, 0, -sectionState.position);
+    } else if (sectionState.axis === "y") {
+      scene.clipPlane = new Plane(0, 1, 0, -sectionState.position);
+    } else {
+      scene.clipPlane = new Plane(0, 0, 1, -sectionState.position);
     }
 
-    if (sectionState.axis === "x") {
-      scene.clipPlane = new Plane(1, 0, 0, -sectionState.position);
-      return;
-    }
-    if (sectionState.axis === "y") {
-      scene.clipPlane = new Plane(0, 1, 0, -sectionState.position);
-      return;
-    }
-    scene.clipPlane = new Plane(0, 0, 1, -sectionState.position);
+    scene.materials.forEach((material) => {
+      const wasFrozen = material.isFrozen;
+      if (wasFrozen) {
+        material.unfreeze();
+      }
+      material.markAsDirty(Material.AllDirtyFlag);
+      if (wasFrozen) {
+        material.freeze();
+      }
+    });
   }, [sectionState]);
 
   const fitToExpressIDs = useCallback((expressIDs: number[]) => {

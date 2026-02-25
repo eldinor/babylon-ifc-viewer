@@ -7,6 +7,7 @@ interface ProjectTabProps {
   selectedExpressID: number | null;
   lengthUnitSymbol: string;
   onSelectNode: (node: IfcProjectTreeNode | null) => void;
+  onDisplaySearchResults: (expressIDs: number[]) => void;
   onFitNode: (node: IfcProjectTreeNode | null) => void;
   onManualFitNode: (node: IfcProjectTreeNode | null) => void;
   onRestoreView: () => void;
@@ -25,6 +26,7 @@ function ProjectTab({
   selectedExpressID,
   lengthUnitSymbol,
   onSelectNode,
+  onDisplaySearchResults,
   onFitNode,
   onManualFitNode,
   onRestoreView,
@@ -355,7 +357,7 @@ function ProjectTab({
         <div className="tree-search-actions">
           <button
             type="button"
-            className="tree-search-btn"
+            className="tree-search-btn tree-search-nav-btn"
             onClick={() => jumpToMatch(-1)}
             disabled={matchedExpressIDs.length === 0}
             title="Previous match"
@@ -364,12 +366,21 @@ function ProjectTab({
           </button>
           <button
             type="button"
-            className="tree-search-btn"
+            className="tree-search-btn tree-search-nav-btn"
             onClick={() => jumpToMatch(1)}
             disabled={matchedExpressIDs.length === 0}
             title="Next match"
           >
             Next
+          </button>
+          <button
+            type="button"
+            className="tree-search-btn tree-search-nav-btn"
+            onClick={() => onDisplaySearchResults(matchedExpressIDs)}
+            disabled={matchedExpressIDs.length === 0}
+            title="Show all found meshes"
+          >
+            Display all
           </button>
           <span className="tree-search-count">
             {matchedExpressIDs.length > 0 ? `${matchIndex + 1}/${matchedExpressIDs.length}` : "0/0"}

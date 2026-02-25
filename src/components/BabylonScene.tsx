@@ -7,7 +7,9 @@ import {
   Vector3,
   Color3,
   Color4,
+  Plane,
 } from "@babylonjs/core";
+import type { SectionAxis } from "../types/app";
 import {
   initializeWebIFC,
   loadIfcModel,
@@ -34,6 +36,11 @@ export interface IfcModelData {
   lengthUnitSymbol: string;
   sourceFileName: string;
   sourceFileSizeBytes: number | null;
+  axisRanges: {
+    x: { min: number; max: number };
+    y: { min: number; max: number };
+    z: { min: number; max: number };
+  };
 }
 
 interface BabylonSceneProps {
@@ -44,6 +51,7 @@ interface BabylonSceneProps {
   onElementPicked?: (data: ElementPickData | null) => void;
   sceneBackgroundColor?: string;
   highlightColor?: string;
+  sectionState?: { enabled: boolean; axis: SectionAxis; position: number | null };
 }
 
 function toColor4(hex: string): Color4 {
@@ -66,12 +74,51 @@ function getMeshExpressID(mesh: Scene["meshes"][number]): number | null {
   return typeof metadata?.expressID === "number" ? metadata.expressID : null;
 }
 
+function buildAxisRanges(meshes: Scene["meshes"]) {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+  let hasBounds = false;
+
+  meshes.forEach((mesh) => {
+    const boundingInfo = mesh.getBoundingInfo();
+    if (!boundingInfo) return;
+    const min = boundingInfo.boundingBox.minimumWorld;
+    const max = boundingInfo.boundingBox.maximumWorld;
+    minX = Math.min(minX, min.x);
+    minY = Math.min(minY, min.y);
+    minZ = Math.min(minZ, min.z);
+    maxX = Math.max(maxX, max.x);
+    maxY = Math.max(maxY, max.y);
+    maxZ = Math.max(maxZ, max.z);
+    hasBounds = true;
+  });
+
+  if (!hasBounds) {
+    return {
+      x: { min: -10, max: 10 },
+      y: { min: -10, max: 10 },
+      z: { min: -10, max: 10 },
+    };
+  }
+
+  return {
+    x: { min: minX, max: maxX },
+    y: { min: minY, max: maxY },
+    z: { min: minZ, max: maxZ },
+  };
+}
+
 function BabylonScene({
   onModelLoaded,
   visibleExpressIDs,
   onElementPicked,
   sceneBackgroundColor = "#1b043e",
   highlightColor = "#008080",
+  sectionState,
 }: BabylonSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -246,6 +293,25 @@ const [ifcReady, setIfcReady] = useState(false);
     pickingManagerRef.current.setHighlightOptions({ highlightColor: toColor3(highlightColor) });
   }, [highlightColor]);
 
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (!sectionState?.enabled || sectionState.position === null) {
+      scene.clipPlane = null;
+      return;
+    }
+
+    if (sectionState.axis === "x") {
+      scene.clipPlane = new Plane(1, 0, 0, -sectionState.position);
+      return;
+    }
+    if (sectionState.axis === "y") {
+      scene.clipPlane = new Plane(0, 1, 0, -sectionState.position);
+      return;
+    }
+    scene.clipPlane = new Plane(0, 0, 1, -sectionState.position);
+  }, [sectionState]);
+
   const fitToExpressIDs = useCallback((expressIDs: number[]) => {
     const scene = sceneRef.current;
     if (!scene || expressIDs.length === 0) return;
@@ -415,6 +481,7 @@ const [ifcReady, setIfcReady] = useState(false);
           lengthUnitSymbol: lengthUnit.symbol,
           sourceFileName,
           sourceFileSizeBytes,
+          axisRanges: buildAxisRanges(meshes),
         })
       }
 

@@ -7,7 +7,7 @@ import ElementInfoPanel from "./components/ElementInfoPanel";
 import Sidebar from "./components/Sidebar";
 import { useModelData } from "./hooks/useModelData";
 import type { ElementPickData } from "./utils/pickingUtils";
-import type { PickMode, TabType } from "./types/app";
+import type { PickMode, SectionAxis, TabType } from "./types/app";
 import { collectSubtreeExpressIDs, type IfcProjectTreeIndex, type IfcProjectTreeNode } from "./utils/projectTreeUtils";
 import type { ElementInfoData } from "./types/elementInfo";
 import { buildElementInfoFromPick, buildElementInfoFromProjectNode } from "./utils/elementInfoUtils";
@@ -17,11 +17,36 @@ const STORAGE_KEYS = {
   highlightColor: "viewer.highlightColor",
 } as const;
 
+const SESSION_KEYS = {
+  sectionEnabled: "viewer.session.section.enabled",
+  sectionAxis: "viewer.session.section.axis",
+  sectionPercent: "viewer.session.section.percent",
+} as const;
+
 const DEFAULT_SCENE_BACKGROUND = "#18003d";
 const DEFAULT_HIGHLIGHT = "#008080";
 
 function isHexColor(value: string | null): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+function isSectionAxis(value: string | null): value is SectionAxis {
+  return value === "x" || value === "y" || value === "z";
+}
+
+function readSessionBool(key: string, fallback: boolean): boolean {
+  const value = sessionStorage.getItem(key);
+  if (value === "1") return true;
+  if (value === "0") return false;
+  return fallback;
+}
+
+function readSessionPercent(key: string, fallback: number): number {
+  const value = sessionStorage.getItem(key);
+  if (value === null) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(100, parsed));
 }
 
 function formatFileSizeMb(sizeBytes: number | null): string {
@@ -49,6 +74,12 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>("project");
   const [pickMode, setPickMode] = useState<PickMode>("select");
+  const [sectionEnabled, setSectionEnabled] = useState<boolean>(() => readSessionBool(SESSION_KEYS.sectionEnabled, false));
+  const [sectionAxis, setSectionAxis] = useState<SectionAxis>(() => {
+    const stored = sessionStorage.getItem(SESSION_KEYS.sectionAxis);
+    return isSectionAxis(stored) ? stored : "y";
+  });
+  const [sectionPercent, setSectionPercent] = useState<number>(() => readSessionPercent(SESSION_KEYS.sectionPercent, 50));
   const [elementInfo, setElementInfo] = useState<ElementInfoData | null>(null);
   const [selectedProjectExpressID, setSelectedProjectExpressID] = useState<number | null>(null);
   const [visibleExpressIDs, setVisibleExpressIDs] = useState<Set<number> | null>(null);
@@ -93,6 +124,14 @@ function App() {
     };
   }, [modelData]);
 
+  const sectionPosition = useMemo(() => {
+    if (!modelData) return null;
+    const range = modelData.axisRanges[sectionAxis];
+    const span = range.max - range.min;
+    if (!Number.isFinite(span) || span <= 0) return range.min;
+    return range.min + (span * sectionPercent) / 100;
+  }, [modelData, sectionAxis, sectionPercent]);
+
   useLayoutEffect(() => {
     projectTreeIndexRef.current = projectTreeIndex;
   }, [projectTreeIndex]);
@@ -127,6 +166,12 @@ function App() {
     setHighlightColor(DEFAULT_HIGHLIGHT);
     localStorage.removeItem(STORAGE_KEYS.sceneBackgroundColor);
     localStorage.removeItem(STORAGE_KEYS.highlightColor);
+    setSectionEnabled(false);
+    setSectionAxis("y");
+    setSectionPercent(50);
+    sessionStorage.removeItem(SESSION_KEYS.sectionEnabled);
+    sessionStorage.removeItem(SESSION_KEYS.sectionAxis);
+    sessionStorage.removeItem(SESSION_KEYS.sectionPercent);
   }, []);
 
   const handleFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
@@ -344,6 +389,18 @@ function App() {
     localStorage.setItem(STORAGE_KEYS.highlightColor, highlightColor);
   }, [highlightColor]);
 
+  useLayoutEffect(() => {
+    sessionStorage.setItem(SESSION_KEYS.sectionEnabled, sectionEnabled ? "1" : "0");
+  }, [sectionEnabled]);
+
+  useLayoutEffect(() => {
+    sessionStorage.setItem(SESSION_KEYS.sectionAxis, sectionAxis);
+  }, [sectionAxis]);
+
+  useLayoutEffect(() => {
+    sessionStorage.setItem(SESSION_KEYS.sectionPercent, String(sectionPercent));
+  }, [sectionPercent]);
+
   return (
     <div className="app">
       <AppHeader
@@ -353,6 +410,18 @@ function App() {
         onOpenHelp={handleOpenHelp}
         pickMode={pickMode}
         onPickModeChange={handlePickModeChange}
+        sectionEnabled={sectionEnabled}
+        sectionAxis={sectionAxis}
+        sectionPercent={sectionPercent}
+        sectionSliderDisabled={!modelData}
+        onSectionEnabledChange={setSectionEnabled}
+        onSectionAxisChange={setSectionAxis}
+        onSectionPercentChange={setSectionPercent}
+        onSectionReset={() => {
+          setSectionEnabled(false);
+          setSectionAxis("y");
+          setSectionPercent(50);
+        }}
         breadcrumbs={breadcrumbs}
         onBreadcrumbClick={handleBreadcrumbClick}
         onBreadcrumbFit={handleBreadcrumbFit}
@@ -398,6 +467,7 @@ function App() {
             onElementPicked={handleElementPicked}
             sceneBackgroundColor={sceneBackgroundColor}
             highlightColor={highlightColor}
+            sectionState={{ enabled: sectionEnabled, axis: sectionAxis, position: sectionPosition }}
           />
         </main>
       </div>

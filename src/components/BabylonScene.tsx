@@ -27,20 +27,11 @@ export interface IfcModelData {
   projectInfo: ProjectInfoResult | null;
   modelID: number;
   ifcGlobalId: string; // GlobalId from IFC file
-  storeyMap: Map<number, number>;
   ifcAPI: WebIFC.IfcAPI;
 }
 
 interface BabylonSceneProps {
   onModelLoaded?: (modelData: IfcModelData | null) => void;
-  /** Storey map from model data for filtering meshes */
-  storeyMap?: Map<number, number>;
-  /** Site expressID for filtering site mesh */
-  siteExpressId?: number | null;
-  /** Set of storey IDs that should be visible (null = all visible) */
-  visibleStoreyIds?: Set<number> | null;
-  /** Whether the site should be visible */
-  isSiteVisible?: boolean;
   /** Explicit element express IDs visibility filter (overrides storey/site filters when set) */
   visibleExpressIDs?: Set<number> | null;
   /** Callback when an IFC element is picked */
@@ -49,10 +40,6 @@ interface BabylonSceneProps {
 
 function BabylonScene({
   onModelLoaded,
-  storeyMap,
-  siteExpressId,
-  visibleStoreyIds,
-  isSiteVisible,
   visibleExpressIDs,
   onElementPicked,
 }: BabylonSceneProps) {
@@ -65,7 +52,7 @@ function BabylonScene({
 const [error, setError] = useState<string | null>(null);
 const [ifcReady, setIfcReady] = useState(false);
 
-// Effect to show/hide meshes based on visible storeys
+// Effect to show/hide meshes based on project tree subtree selection
   useEffect(() => {
     if (!sceneRef.current) return;
 
@@ -74,60 +61,22 @@ const [ifcReady, setIfcReady] = useState(false);
     let hiddenCount = 0;
 
     meshes.forEach((mesh) => {
-      if (mesh.metadata?.expressID !== undefined) {
-        const meshStoreyId = storeyMap?.get(mesh.metadata.expressID);
+      const expressID = mesh.metadata?.expressID;
+      const shouldShow = visibleExpressIDs && expressID !== undefined ? visibleExpressIDs.has(expressID) : true;
+      mesh.isVisible = shouldShow;
+      mesh.setEnabled(shouldShow);
 
-        // Explicit subtree selection filter from ProjectTree has highest priority
-        if (visibleExpressIDs) {
-          const shouldShow = visibleExpressIDs.has(mesh.metadata.expressID);
-          mesh.isVisible = shouldShow;
-          mesh.setEnabled(shouldShow);
-          if (shouldShow) {
-            visibleCount++;
-          } else {
-            hiddenCount++;
-          }
-          return;
-        }
-
-        // Determine visibility based on visibleStoreyIds
-        let shouldShow = true;
-
-        // Check if this is a site mesh
-        const isSiteMesh = siteExpressId !== null && siteExpressId !== undefined && mesh.metadata.expressID === siteExpressId;
-        
-        if (isSiteMesh) {
-          // Site mesh: use isSiteVisible
-          shouldShow = isSiteVisible !== false;
-        } else if (meshStoreyId !== undefined) {
-          // Regular mesh with storey assignment
-          if (visibleStoreyIds === null || visibleStoreyIds === undefined) {
-            // All visible mode
-            shouldShow = true;
-          } else {
-            // Only show if storey is in visible set
-            shouldShow = visibleStoreyIds.has(meshStoreyId);
-          }
-        } else {
-          // Mesh without storey assignment - show in all visible mode or when site is selected (empty set)
-          shouldShow = visibleStoreyIds === null || visibleStoreyIds === undefined || (visibleStoreyIds && visibleStoreyIds.size === 0);
-        }
-
-        mesh.isVisible = shouldShow;
-        mesh.setEnabled(shouldShow);
-
-        if (shouldShow) {
-          visibleCount++;
-        } else {
-          hiddenCount++;
-        }
+      if (shouldShow) {
+        visibleCount++;
+      } else {
+        hiddenCount++;
       }
     });
 
     console.log(
-      `Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (project subtree: ${visibleExpressIDs ? visibleExpressIDs.size : "off"}, visible storeys: ${visibleStoreyIds === null ? "all" : visibleStoreyIds?.size ?? 0})`,
+      `Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (project subtree: ${visibleExpressIDs ? visibleExpressIDs.size : "off"})`,
     );
-  }, [storeyMap, siteExpressId, visibleStoreyIds, isSiteVisible, visibleExpressIDs]);
+  }, [visibleExpressIDs]);
 
   // Initialize engine and scene
   useEffect(() => {
@@ -300,7 +249,6 @@ const [ifcReady, setIfcReady] = useState(false);
           projectInfo,
           modelID: model.modelID,
           ifcGlobalId,
-          storeyMap: model.storeyMap,
           ifcAPI: ifcAPIRef.current,
         })
       }

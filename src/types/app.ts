@@ -1,1 +1,1 @@
-export type TabType = "storey" | "project" | "info";
+export type TabType = "project" | "info";

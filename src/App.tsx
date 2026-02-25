@@ -1,13 +1,11 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import type { MouseEvent } from "react";
 import "./App.css";
 import BabylonScene, { type IfcModelData } from "./components/BabylonScene";
 import AppHeader from "./components/AppHeader";
 import ElementInfoPanel from "./components/ElementInfoPanel";
 import Sidebar from "./components/Sidebar";
 import { useModelData } from "./hooks/useModelData";
-import { useStoreyVisibility } from "./hooks/useStoreyVisibility";
 import type { ElementPickData } from "./utils/pickingUtils";
 import type { TabType } from "./types/app";
 import { collectSubtreeExpressIDs, type IfcProjectTreeIndex, type IfcProjectTreeNode } from "./utils/projectTreeUtils";
@@ -17,7 +15,6 @@ import { buildElementInfoFromPick, buildElementInfoFromProjectNode } from "./uti
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectTreeIndexRef = useRef<IfcProjectTreeIndex | null>(null);
-  const storeyMapRef = useRef<Map<number, number> | undefined>(undefined);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>("project");
   const [elementInfo, setElementInfo] = useState<ElementInfoData | null>(null);
@@ -28,28 +25,13 @@ function App() {
     setElementInfo(null);
   }, []);
 
-  const { modelData, projectInfo, storeys, siteInfo, projectTreeIndex, handleModelLoaded: setModelData } = useModelData(
+  const { modelData, projectInfo, projectTreeIndex, handleModelLoaded: setModelData } = useModelData(
     handleModelCleared,
   );
 
   useLayoutEffect(() => {
     projectTreeIndexRef.current = projectTreeIndex;
   }, [projectTreeIndex]);
-
-  useLayoutEffect(() => {
-    storeyMapRef.current = modelData?.storeyMap;
-  }, [modelData]);
-
-  const {
-    visibleStoreyIds,
-    isSiteVisible,
-    resetVisibility,
-    handleStoreyClick,
-    handleSiteClick,
-    handleAllStoreysClick,
-    toggleStoreyVisibility,
-    toggleSiteVisibility,
-  } = useStoreyVisibility(storeys);
 
   const handleOpenIfc = useCallback(() => {
     fileInputRef.current?.click();
@@ -66,13 +48,12 @@ function App() {
   const handleModelLoaded = useCallback(
     (data: IfcModelData | null) => {
       setModelData(data);
-      resetVisibility();
       setSelectedProjectExpressID(null);
       setVisibleExpressIDs(null);
       setElementInfo(null);
       setActiveTab("project");
     },
-    [resetVisibility, setModelData],
+    [setModelData],
   );
 
   const clearProjectTreeSelection = useCallback(() => {
@@ -96,40 +77,6 @@ function App() {
     }
   }, [clearProjectTreeSelection, modelData, projectTreeIndex]);
 
-  const handleStoreyClickWithReset = useCallback(
-    (storeyId: number) => {
-      clearProjectTreeSelection();
-      handleStoreyClick(storeyId);
-    },
-    [clearProjectTreeSelection, handleStoreyClick],
-  );
-
-  const handleSiteClickWithReset = useCallback(() => {
-    clearProjectTreeSelection();
-    handleSiteClick();
-  }, [clearProjectTreeSelection, handleSiteClick]);
-
-  const handleAllStoreysClickWithReset = useCallback(() => {
-    clearProjectTreeSelection();
-    handleAllStoreysClick();
-  }, [clearProjectTreeSelection, handleAllStoreysClick]);
-
-  const toggleStoreyVisibilityWithReset = useCallback(
-    (storeyId: number, event: MouseEvent) => {
-      clearProjectTreeSelection();
-      toggleStoreyVisibility(storeyId, event);
-    },
-    [clearProjectTreeSelection, toggleStoreyVisibility],
-  );
-
-  const toggleSiteVisibilityWithReset = useCallback(
-    (event: MouseEvent) => {
-      clearProjectTreeSelection();
-      toggleSiteVisibility(event);
-    },
-    [clearProjectTreeSelection, toggleSiteVisibility],
-  );
-
   const handleElementPicked = useCallback((data: ElementPickData | null) => {
     if (!data) {
       setElementInfo(null);
@@ -142,11 +89,6 @@ function App() {
     if (treeIndex.nodes.has(data.expressID)) {
       setSelectedProjectExpressID(data.expressID);
       return;
-    }
-
-    const fallbackStoreyID = storeyMapRef.current?.get(data.expressID);
-    if (fallbackStoreyID !== undefined && treeIndex.nodes.has(fallbackStoreyID)) {
-      setSelectedProjectExpressID(fallbackStoreyID);
     }
   }, []);
 
@@ -161,29 +103,16 @@ function App() {
           sidebarCollapsed={sidebarCollapsed}
           activeTab={activeTab}
           projectInfo={projectInfo}
-          storeys={storeys}
-          siteInfo={siteInfo}
           projectTreeIndex={projectTreeIndex}
-          visibleStoreyIds={visibleStoreyIds}
-          isSiteVisible={isSiteVisible}
           selectedProjectExpressID={selectedProjectExpressID}
           onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
           onSetTab={setActiveTab}
           onSelectProjectNode={handleSelectProjectNode}
-          onStoreyClick={handleStoreyClickWithReset}
-          onSiteClick={handleSiteClickWithReset}
-          onAllStoreysClick={handleAllStoreysClickWithReset}
-          onToggleStoreyVisibility={toggleStoreyVisibilityWithReset}
-          onToggleSiteVisibility={toggleSiteVisibilityWithReset}
         />
 
         <main className="canvas-container">
           <BabylonScene
             onModelLoaded={handleModelLoaded}
-            storeyMap={modelData?.storeyMap}
-            siteExpressId={siteInfo?.expressID ?? null}
-            visibleStoreyIds={visibleStoreyIds}
-            isSiteVisible={isSiteVisible}
             visibleExpressIDs={visibleExpressIDs}
             onElementPicked={handleElementPicked}
           />

@@ -107,8 +107,8 @@
 }
 
 .pick-mode-btn.active {
-  background-color: #1f6f3d;
-  color: #eafff2;
+  background-color: #1f5d8f;
+  color: #e6f5ff;
 }
 
 .pick-mode-btn:hover {
@@ -148,6 +148,31 @@
 
 .clip-inline-indicator:hover {
   background-color: #1a1a2e;
+}
+
+.clip-invert-btn {
+  width: 24px;
+  height: 24px;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  border-left: 1px solid #1a1a2e;
+  background-color: #0f3460;
+  color: #9fb5cb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.clip-invert-btn:hover {
+  background-color: #1a1a2e;
+  color: #e6f5ff;
+}
+
+.clip-invert-btn.active {
+  background-color: #1f5d8f;
+  color: #e6f5ff;
 }
 
 .clip-status-dot {
@@ -262,6 +287,10 @@
   color: #9fb5cb;
 }
 
+.clip-invert-row {
+  margin-top: 8px;
+}
+
 .settings-section-axis {
   display: inline-flex;
   gap: 4px;
@@ -280,8 +309,8 @@
 }
 
 .settings-axis-btn.active {
-  background-color: #1f6f3d;
-  color: #eafff2;
+  background-color: #1f5d8f;
+  color: #e6f5ff;
 }
 
 .settings-section-slider {
@@ -483,9 +512,9 @@
 }
 
 .tree-always-fit-btn.enabled {
-  background-color: #1f6f3d;
-  color: #eafff2;
-  border-color: #2f8a54;
+  background-color: #1f5d8f;
+  color: #e6f5ff;
+  border-color: #24608f;
 }
 
 .tree-always-fit-btn.disabled {

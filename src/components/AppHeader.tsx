@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, RefObject } from "react";
 import type { PickMode, SectionAxis } from "../types/app";
-import { FolderOpenIcon, HelpIcon, SettingsIcon } from "./Icons";
+import { ClipInvertIcon, FolderOpenIcon, HelpIcon, SettingsIcon } from "./Icons";
 
 interface HeaderBreadcrumbItem {
   expressID: number;
@@ -15,13 +15,16 @@ interface AppHeaderProps {
   onOpenHelp: () => void;
   pickMode: PickMode;
   onPickModeChange: (mode: PickMode) => void;
+  onIsolateModeDoubleClick: () => void;
   sectionEnabled: boolean;
   sectionAxis: SectionAxis;
   sectionPercent: number;
+  sectionInverted: boolean;
   sectionSliderDisabled: boolean;
   onSectionEnabledChange: (enabled: boolean) => void;
   onSectionAxisChange: (axis: SectionAxis) => void;
   onSectionPercentChange: (percent: number) => void;
+  onSectionInvertedChange: (inverted: boolean) => void;
   onSectionReset: () => void;
   breadcrumbs: HeaderBreadcrumbItem[];
   onBreadcrumbClick: (expressID: number) => void;
@@ -40,13 +43,16 @@ function AppHeader({
   onOpenHelp,
   pickMode,
   onPickModeChange,
+  onIsolateModeDoubleClick,
   sectionEnabled,
   sectionAxis,
   sectionPercent,
+  sectionInverted,
   sectionSliderDisabled,
   onSectionEnabledChange,
   onSectionAxisChange,
   onSectionPercentChange,
+  onSectionInvertedChange,
   onSectionReset,
   breadcrumbs,
   onBreadcrumbClick,
@@ -115,6 +121,7 @@ function AppHeader({
             type="button"
             className={`pick-mode-btn ${pickMode === "isolate" ? "active" : ""}`}
             onClick={() => onPickModeChange("isolate")}
+            onDoubleClick={onIsolateModeDoubleClick}
           >
             Isolate
           </button>
@@ -153,6 +160,14 @@ function AppHeader({
               >
                 <span className={`clip-status-dot ${sectionEnabled ? "on" : "off"}`} />
                 {sectionEnabled ? `${sectionAxis.toUpperCase()} ${sectionPercent}%` : "Off"}
+              </button>
+              <button
+                type="button"
+                className={`clip-invert-btn ${sectionInverted ? "active" : ""}`}
+                title={sectionInverted ? "Clip side: inverted" : "Clip side: default"}
+                onClick={() => onSectionInvertedChange(!sectionInverted)}
+              >
+                <ClipInvertIcon />
               </button>
               {clipOpen && (
                 <div className="clip-popover">
@@ -199,6 +214,14 @@ function AppHeader({
                   disabled={sectionSliderDisabled}
                   onChange={(event) => onSectionPercentChange(Number(event.target.value))}
                 />
+                <label className="settings-switch clip-invert-row">
+                  <input
+                    type="checkbox"
+                    checked={sectionInverted}
+                    onChange={(event) => onSectionInvertedChange(event.target.checked)}
+                  />
+                  <span>Invert side</span>
+                </label>
                 <button type="button" className="settings-section-reset" onClick={onSectionReset}>
                   Reset section
                 </button>

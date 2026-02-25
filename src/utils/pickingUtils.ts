@@ -30,6 +30,7 @@ export interface ElementPickData {
   typeName: string;
   elementName: string;
   element: IfcElement;
+  clickCount: number;
 }
 
 /**
@@ -49,8 +50,10 @@ export class PickingManager {
   private scene: Scene;
   private ifcAPI: WebIFC.IfcAPI;
   private currentHighlightedMesh: AbstractMesh | null = null;
+  private persistentHighlightedMesh: AbstractMesh | null = null;
   private options: PickingOptions;
   private pointerObserver: Observer<PointerInfo> | null = null;
+  private pointerDoubleObserver: Observer<PointerInfo> | null = null;
 
   constructor(scene: Scene, ifcAPI: WebIFC.IfcAPI, options?: PickingOptions) {
     this.scene = scene;
@@ -76,11 +79,21 @@ export class PickingManager {
 
       const resolvedMesh = this.resolveVisiblePick(pointerInfo);
       if (resolvedMesh) {
-        this.handleMeshClick(resolvedMesh);
+        this.handleMeshClick(resolvedMesh, 1);
       } else {
         this.clearHighlight();
       }
     }, PointerEventTypes.POINTERDOWN);
+
+    this.pointerDoubleObserver = this.scene.onPointerObservable.add((pointerInfo: PointerInfo) => {
+      const evt = pointerInfo.event;
+      if (evt.button !== 0) return;
+
+      const resolvedMesh = this.resolveVisiblePick(pointerInfo);
+      if (resolvedMesh) {
+        this.handleMeshClick(resolvedMesh, 2);
+      }
+    }, PointerEventTypes.POINTERDOUBLETAP);
   }
 
   private getActiveClipPlanes(): Plane[] {
@@ -123,7 +136,7 @@ export class PickingManager {
   /**
    * Handle mesh click event
    */
-  private handleMeshClick(mesh: AbstractMesh): void {
+  private handleMeshClick(mesh: AbstractMesh, clickCount: number): void {
     const metadata = mesh.metadata as unknown;
 
     if (isIfcMeshMetadata(metadata)) {
@@ -137,8 +150,8 @@ export class PickingManager {
           typeof element.type === "number" ? this.ifcAPI.GetNameFromTypeCode(element.type) : "Unknown";
         const elementName = element.Name?.value || "Unnamed";
 
-        // Remove previous highlight
-        this.clearHighlight();
+        // Remove previous primary highlight
+        this.clearPrimaryHighlight();
 
         // Add overlay to picked mesh
         mesh.renderOverlay = true;
@@ -155,6 +168,7 @@ export class PickingManager {
             typeName,
             elementName,
             element,
+            clickCount,
           });
         }
       } catch (error) {
@@ -171,8 +185,8 @@ export class PickingManager {
    * Highlight a specific mesh
    */
   highlightMesh(mesh: AbstractMesh, options?: PickingOptions): void {
-    // Clear current highlight
-    this.clearHighlight();
+    // Clear current primary highlight
+    this.clearPrimaryHighlight();
 
     const metadata = mesh.metadata as unknown;
 
@@ -189,6 +203,11 @@ export class PickingManager {
    * Clear current highlight
    */
   clearHighlight(): void {
+    this.clearPrimaryHighlight();
+    this.clearPersistentHighlight();
+  }
+
+  private clearPrimaryHighlight(): void {
     if (this.currentHighlightedMesh) {
       this.currentHighlightedMesh.renderOverlay = false;
       this.currentHighlightedMesh = null;
@@ -197,6 +216,13 @@ export class PickingManager {
       if (this.options.onClear) {
         this.options.onClear();
       }
+    }
+  }
+
+  private clearPersistentHighlight(): void {
+    if (this.persistentHighlightedMesh) {
+      this.persistentHighlightedMesh.renderOverlay = false;
+      this.persistentHighlightedMesh = null;
     }
   }
 
@@ -220,6 +246,19 @@ export class PickingManager {
     return this.currentHighlightedMesh;
   }
 
+  setPersistentHighlight(mesh: AbstractMesh | null, options?: PickingOptions): void {
+    this.clearPersistentHighlight();
+    if (!mesh || mesh === this.currentHighlightedMesh) return;
+
+    const metadata = mesh.metadata as unknown;
+    if (!isIfcMeshMetadata(metadata)) return;
+
+    mesh.renderOverlay = true;
+    mesh.overlayColor = options?.highlightColor || this.options.highlightColor!;
+    mesh.overlayAlpha = options?.highlightAlpha || this.options.highlightAlpha!;
+    this.persistentHighlightedMesh = mesh;
+  }
+
   /**
    * Dispose pointer observer and clear active highlight
    */
@@ -228,6 +267,10 @@ export class PickingManager {
     if (this.pointerObserver) {
       this.scene.onPointerObservable.remove(this.pointerObserver);
       this.pointerObserver = null;
+    }
+    if (this.pointerDoubleObserver) {
+      this.scene.onPointerObservable.remove(this.pointerDoubleObserver);
+      this.pointerDoubleObserver = null;
     }
   }
 }

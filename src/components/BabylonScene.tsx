@@ -10,7 +10,7 @@ import {
   Plane,
   Material,
 } from "@babylonjs/core";
-import type { SectionAxis } from "../types/app";
+import type { PickMode, SectionAxis } from "../types/app";
 import {
   initializeWebIFC,
   loadIfcModel,
@@ -52,7 +52,9 @@ interface BabylonSceneProps {
   onElementPicked?: (data: ElementPickData | null) => void;
   sceneBackgroundColor?: string;
   highlightColor?: string;
-  sectionState?: { enabled: boolean; axis: SectionAxis; position: number | null };
+  sectionState?: { enabled: boolean; axis: SectionAxis; position: number | null; inverted: boolean };
+  pickMode?: PickMode;
+  measurePinnedFirstExpressID?: number | null;
 }
 
 function toColor4(hex: string): Color4 {
@@ -61,6 +63,11 @@ function toColor4(hex: string): Color4 {
 
 function toColor3(hex: string): Color3 {
   return Color3.FromHexString(hex);
+}
+
+function darkenColor(color: Color3, factor: number): Color3 {
+  const clamped = Math.max(0, Math.min(1, factor));
+  return new Color3(color.r * clamped, color.g * clamped, color.b * clamped);
 }
 
 interface CameraViewSnapshot {
@@ -120,6 +127,8 @@ function BabylonScene({
   sceneBackgroundColor = "#1b043e",
   highlightColor = "#008080",
   sectionState,
+  pickMode = "select",
+  measurePinnedFirstExpressID = null,
 }: BabylonSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -295,16 +304,39 @@ const [ifcReady, setIfcReady] = useState(false);
   }, [highlightColor]);
 
   useEffect(() => {
+    const manager = pickingManagerRef.current;
+    const scene = sceneRef.current;
+    if (!manager || !scene) return;
+
+    if (pickMode !== "measure" || measurePinnedFirstExpressID === null) {
+      manager.setPersistentHighlight(null);
+      return;
+    }
+
+    const firstMesh = scene.meshes.find((mesh) => {
+      const metadata = mesh.metadata as { expressID?: unknown } | null;
+      return typeof metadata?.expressID === "number" && metadata.expressID === measurePinnedFirstExpressID;
+    });
+    manager.setPersistentHighlight(firstMesh ?? null, {
+      highlightColor: darkenColor(toColor3(highlightColor), 0.55),
+      highlightAlpha: 0.38,
+    });
+  }, [highlightColor, measurePinnedFirstExpressID, pickMode]);
+
+  useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
     if (!sectionState?.enabled || sectionState.position === null) {
       scene.clipPlane = null;
-    } else if (sectionState.axis === "x") {
-      scene.clipPlane = new Plane(1, 0, 0, -sectionState.position);
-    } else if (sectionState.axis === "y") {
-      scene.clipPlane = new Plane(0, 1, 0, -sectionState.position);
     } else {
-      scene.clipPlane = new Plane(0, 0, 1, -sectionState.position);
+      const direction = sectionState.inverted ? -1 : 1;
+      if (sectionState.axis === "x") {
+        scene.clipPlane = new Plane(direction, 0, 0, -direction * sectionState.position);
+      } else if (sectionState.axis === "y") {
+        scene.clipPlane = new Plane(0, direction, 0, -direction * sectionState.position);
+      } else {
+        scene.clipPlane = new Plane(0, 0, direction, -direction * sectionState.position);
+      }
     }
 
     scene.materials.forEach((material) => {

@@ -112,3 +112,13 @@ export const AlwaysFitIcon = () => (
     <path d="M15.5 13.5v-1a2 2 0 1 1 4 0v1"></path>
   </svg>
 )
+
+export const ClipInvertIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="3" x2="12" y2="21"></line>
+    <polyline points="9 7 12 4 15 7"></polyline>
+    <polyline points="9 17 12 20 15 17"></polyline>
+    <line x1="4" y1="12" x2="10" y2="12"></line>
+    <line x1="14" y1="12" x2="20" y2="12"></line>
+  </svg>
+)

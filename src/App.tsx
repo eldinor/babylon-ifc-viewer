@@ -16,12 +16,16 @@ import { buildElementInfoFromPick, buildElementInfoFromProjectNode } from "./uti
 const STORAGE_KEYS = {
   sceneBackgroundColor: "viewer.sceneBackgroundColor",
   highlightColor: "viewer.highlightColor",
+  pickMode: "viewer.pickMode",
+  alwaysFitEnabled: "viewer.alwaysFitEnabled",
+  sidebarCollapsed: "viewer.sidebarCollapsed",
 } as const;
 
 const SESSION_KEYS = {
   sectionEnabled: "viewer.session.section.enabled",
   sectionAxis: "viewer.session.section.axis",
   sectionPercent: "viewer.session.section.percent",
+  sectionInverted: "viewer.session.section.inverted",
 } as const;
 
 const DEFAULT_SCENE_BACKGROUND = "#18003d";
@@ -33,6 +37,17 @@ function isHexColor(value: string | null): value is string {
 
 function isSectionAxis(value: string | null): value is SectionAxis {
   return value === "x" || value === "y" || value === "z";
+}
+
+function isPickMode(value: string | null): value is PickMode {
+  return value === "select" || value === "isolate" || value === "measure" || value === "inspect";
+}
+
+function readStorageBool(key: string, fallback: boolean): boolean {
+  const value = localStorage.getItem(key);
+  if (value === "1") return true;
+  if (value === "0") return false;
+  return fallback;
 }
 
 function readSessionBool(key: string, fallback: boolean): boolean {
@@ -72,21 +87,32 @@ function getPickedCenter(data: ElementPickData): { x: number; y: number; z: numb
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectTreeIndexRef = useRef<IfcProjectTreeIndex | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
+    readStorageBool(STORAGE_KEYS.sidebarCollapsed, false),
+  );
   const [activeTab, setActiveTab] = useState<TabType>("project");
-  const [pickMode, setPickMode] = useState<PickMode>("select");
+  const [pickMode, setPickMode] = useState<PickMode>(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.pickMode);
+    return isPickMode(stored) ? stored : "select";
+  });
   const [sectionEnabled, setSectionEnabled] = useState<boolean>(() => readSessionBool(SESSION_KEYS.sectionEnabled, false));
   const [sectionAxis, setSectionAxis] = useState<SectionAxis>(() => {
     const stored = sessionStorage.getItem(SESSION_KEYS.sectionAxis);
     return isSectionAxis(stored) ? stored : "y";
   });
   const [sectionPercent, setSectionPercent] = useState<number>(() => readSessionPercent(SESSION_KEYS.sectionPercent, 50));
+  const [sectionInverted, setSectionInverted] = useState<boolean>(() =>
+    readSessionBool(SESSION_KEYS.sectionInverted, false),
+  );
   const [elementInfo, setElementInfo] = useState<ElementInfoData | null>(null);
   const [selectedProjectExpressID, setSelectedProjectExpressID] = useState<number | null>(null);
   const [visibleExpressIDs, setVisibleExpressIDs] = useState<Set<number> | null>(null);
-  const [alwaysFitEnabled, setAlwaysFitEnabled] = useState(false);
+  const [alwaysFitEnabled, setAlwaysFitEnabled] = useState<boolean>(() =>
+    readStorageBool(STORAGE_KEYS.alwaysFitEnabled, false),
+  );
   const [canRestoreView, setCanRestoreView] = useState(false);
   const [measureStart, setMeasureStart] = useState<{ expressID: number; center: { x: number; y: number; z: number } } | null>(null);
+  const [measurePinnedFirstExpressID, setMeasurePinnedFirstExpressID] = useState<number | null>(null);
   const [sceneBackgroundColor, setSceneBackgroundColor] = useState<string>(() => {
     const stored = localStorage.getItem(STORAGE_KEYS.sceneBackgroundColor);
     return isHexColor(stored) ? stored : DEFAULT_SCENE_BACKGROUND;
@@ -150,6 +176,7 @@ function App() {
     setPickMode(mode);
     if (mode !== "measure") {
       setMeasureStart(null);
+      setMeasurePinnedFirstExpressID(null);
     }
   }, []);
 
@@ -166,14 +193,22 @@ function App() {
   const handleClearUserSettings = useCallback(() => {
     setSceneBackgroundColor(DEFAULT_SCENE_BACKGROUND);
     setHighlightColor(DEFAULT_HIGHLIGHT);
+    setPickMode("select");
+    setAlwaysFitEnabled(false);
+    setSidebarCollapsed(false);
     localStorage.removeItem(STORAGE_KEYS.sceneBackgroundColor);
     localStorage.removeItem(STORAGE_KEYS.highlightColor);
+    localStorage.removeItem(STORAGE_KEYS.pickMode);
+    localStorage.removeItem(STORAGE_KEYS.alwaysFitEnabled);
+    localStorage.removeItem(STORAGE_KEYS.sidebarCollapsed);
     setSectionEnabled(false);
     setSectionAxis("y");
     setSectionPercent(50);
+    setSectionInverted(false);
     sessionStorage.removeItem(SESSION_KEYS.sectionEnabled);
     sessionStorage.removeItem(SESSION_KEYS.sectionAxis);
     sessionStorage.removeItem(SESSION_KEYS.sectionPercent);
+    sessionStorage.removeItem(SESSION_KEYS.sectionInverted);
   }, []);
 
   const handleFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
@@ -191,6 +226,7 @@ function App() {
       setVisibleExpressIDs(null);
       setElementInfo(null);
       setMeasureStart(null);
+      setMeasurePinnedFirstExpressID(null);
       setActiveTab("project");
     },
     [setModelData],
@@ -239,6 +275,27 @@ function App() {
       window.fitToExpressIDs(subtreeIDs);
     }
   }, [alwaysFitEnabled, clearProjectTreeSelection, modelData, projectTreeIndex]);
+
+  const handleIsolateExpandToParentScope = useCallback((expressID: number) => {
+    if (!projectTreeIndex) return;
+
+    const parentID = projectTreeIndex.parentByExpressID.get(expressID);
+    const scopeRootID = parentID ?? expressID;
+    const scopeIDs = collectSubtreeExpressIDs(scopeRootID, projectTreeIndex);
+    setVisibleExpressIDs(new Set(scopeIDs));
+    setSelectedProjectExpressID(expressID);
+
+    if (alwaysFitEnabled && window.fitToExpressIDs) {
+      window.fitToExpressIDs(scopeIDs);
+    }
+  }, [alwaysFitEnabled, projectTreeIndex]);
+
+  const handleIsolateButtonDoubleClick = useCallback(() => {
+    if (pickMode !== "isolate") return;
+    const sourceExpressID = selectedProjectExpressID ?? elementInfo?.expressID ?? null;
+    if (sourceExpressID === null) return;
+    handleIsolateExpandToParentScope(sourceExpressID);
+  }, [elementInfo?.expressID, handleIsolateExpandToParentScope, pickMode, selectedProjectExpressID]);
 
   const handleBreadcrumbClick = useCallback((expressID: number) => {
     if (!projectTreeIndex) return;
@@ -290,6 +347,7 @@ function App() {
 
       if (!measureStart) {
         setMeasureStart({ expressID: data.expressID, center });
+        setMeasurePinnedFirstExpressID(null);
         setElementInfo({
           source: "scene",
           expressID: data.expressID,
@@ -319,6 +377,7 @@ function App() {
           { label: "dZ", value: formatLength(dz, unitSymbol) },
         ],
       });
+      setMeasurePinnedFirstExpressID(measureStart.expressID === data.expressID ? null : measureStart.expressID);
       setMeasureStart(null);
       return;
     }
@@ -335,6 +394,11 @@ function App() {
           window.fitToExpressIDs([data.expressID]);
         }
         setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
+        return;
+      }
+
+      if (data.clickCount >= 2) {
+        handleIsolateExpandToParentScope(data.expressID);
         return;
       }
 
@@ -387,7 +451,16 @@ function App() {
       window.fitToExpressIDs([data.expressID]);
     }
     setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData.lengthUnitSymbol }));
-  }, [alwaysFitEnabled, handleFitProjectNode, handleSelectProjectNode, measureStart, modelData, pickMode, projectTreeIndex]);
+  }, [
+    alwaysFitEnabled,
+    handleFitProjectNode,
+    handleIsolateExpandToParentScope,
+    handleSelectProjectNode,
+    measureStart,
+    modelData,
+    pickMode,
+    projectTreeIndex,
+  ]);
 
   useLayoutEffect(() => {
     localStorage.setItem(STORAGE_KEYS.sceneBackgroundColor, sceneBackgroundColor);
@@ -396,6 +469,18 @@ function App() {
   useLayoutEffect(() => {
     localStorage.setItem(STORAGE_KEYS.highlightColor, highlightColor);
   }, [highlightColor]);
+
+  useLayoutEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.pickMode, pickMode);
+  }, [pickMode]);
+
+  useLayoutEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.alwaysFitEnabled, alwaysFitEnabled ? "1" : "0");
+  }, [alwaysFitEnabled]);
+
+  useLayoutEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.sidebarCollapsed, sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
 
   useLayoutEffect(() => {
     sessionStorage.setItem(SESSION_KEYS.sectionEnabled, sectionEnabled ? "1" : "0");
@@ -408,6 +493,10 @@ function App() {
   useLayoutEffect(() => {
     sessionStorage.setItem(SESSION_KEYS.sectionPercent, String(sectionPercent));
   }, [sectionPercent]);
+
+  useLayoutEffect(() => {
+    sessionStorage.setItem(SESSION_KEYS.sectionInverted, sectionInverted ? "1" : "0");
+  }, [sectionInverted]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -478,17 +567,21 @@ function App() {
         onOpenHelp={handleOpenHelp}
         pickMode={pickMode}
         onPickModeChange={handlePickModeChange}
+        onIsolateModeDoubleClick={handleIsolateButtonDoubleClick}
         sectionEnabled={sectionEnabled}
         sectionAxis={sectionAxis}
         sectionPercent={sectionPercent}
+        sectionInverted={sectionInverted}
         sectionSliderDisabled={!modelData}
         onSectionEnabledChange={setSectionEnabled}
         onSectionAxisChange={setSectionAxis}
         onSectionPercentChange={setSectionPercent}
+        onSectionInvertedChange={setSectionInverted}
         onSectionReset={() => {
           setSectionEnabled(false);
           setSectionAxis("y");
           setSectionPercent(50);
+          setSectionInverted(false);
         }}
         breadcrumbs={breadcrumbs}
         onBreadcrumbClick={handleBreadcrumbClick}
@@ -537,7 +630,9 @@ function App() {
             onElementPicked={handleElementPicked}
             sceneBackgroundColor={sceneBackgroundColor}
             highlightColor={highlightColor}
-            sectionState={{ enabled: sectionEnabled, axis: sectionAxis, position: sectionPosition }}
+            sectionState={{ enabled: sectionEnabled, axis: sectionAxis, position: sectionPosition, inverted: sectionInverted }}
+            pickMode={pickMode}
+            measurePinnedFirstExpressID={measurePinnedFirstExpressID}
           />
         </main>
       </div>

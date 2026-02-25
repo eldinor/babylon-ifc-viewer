@@ -16,13 +16,26 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set(treeIndex?.roots ?? []));
   const [activeExpressID, setActiveExpressID] = useState<number | null>(() => treeIndex?.roots[0] ?? null);
 
+  const effectiveExpandedIds = useMemo(() => {
+    if (!treeIndex || selectedExpressID === null) return expandedIds;
+    const next = new Set(expandedIds);
+    let current = treeIndex.parentByExpressID.get(selectedExpressID);
+    while (current !== undefined) {
+      next.add(current);
+      current = treeIndex.parentByExpressID.get(current);
+    }
+    return next;
+  }, [expandedIds, selectedExpressID, treeIndex]);
+
+  const effectiveActiveExpressID = activeExpressID ?? selectedExpressID ?? treeIndex?.roots[0] ?? null;
+
   const visibleNodes = useMemo(() => {
     if (!treeIndex) return [] as VisibleNode[];
     const list: VisibleNode[] = [];
 
     const walk = (expressID: number, depth: number) => {
       list.push({ expressID, depth });
-      if (!expandedIds.has(expressID)) return;
+      if (!effectiveExpandedIds.has(expressID)) return;
       const node = treeIndex.nodes.get(expressID);
       if (!node || node.childExpressIDs.length === 0) return;
       node.childExpressIDs.forEach((childID) => walk(childID, depth + 1));
@@ -30,11 +43,11 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
 
     treeIndex.roots.forEach((rootID) => walk(rootID, 0));
     return list;
-  }, [expandedIds, treeIndex]);
+  }, [effectiveExpandedIds, treeIndex]);
 
   const activeIndex = useMemo(
-    () => visibleNodes.findIndex((item) => item.expressID === activeExpressID),
-    [activeExpressID, visibleNodes],
+    () => visibleNodes.findIndex((item) => item.expressID === effectiveActiveExpressID),
+    [effectiveActiveExpressID, visibleNodes],
   );
 
   const toggleExpand = (expressID: number) => {
@@ -70,7 +83,7 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!treeIndex || visibleNodes.length === 0) return;
 
-    const currentExpressID = activeExpressID ?? visibleNodes[0].expressID;
+    const currentExpressID = effectiveActiveExpressID ?? visibleNodes[0].expressID;
     const currentNode = treeIndex.nodes.get(currentExpressID);
     if (!currentNode) return;
 
@@ -90,7 +103,7 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
 
     if (event.key === "ArrowRight") {
       event.preventDefault();
-      if (currentNode.childExpressIDs.length > 0 && !expandedIds.has(currentExpressID)) {
+      if (currentNode.childExpressIDs.length > 0 && !effectiveExpandedIds.has(currentExpressID)) {
         toggleExpand(currentExpressID);
       }
       return;
@@ -98,7 +111,7 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
 
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      if (expandedIds.has(currentExpressID)) {
+      if (effectiveExpandedIds.has(currentExpressID)) {
         toggleExpand(currentExpressID);
         return;
       }
@@ -136,9 +149,9 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
           const node = treeIndex.nodes.get(expressID);
           if (!node) return null;
           const hasChildren = node.childExpressIDs.length > 0;
-          const isExpanded = expandedIds.has(expressID);
+          const isExpanded = effectiveExpandedIds.has(expressID);
           const isSelected = selectedExpressID === expressID;
-          const isActive = activeExpressID === expressID;
+          const isActive = effectiveActiveExpressID === expressID;
 
           return (
             <div key={node.id} className="tree-row" style={{ paddingLeft: `${depth * 8}px` }}>

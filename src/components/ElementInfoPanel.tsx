@@ -1,12 +1,30 @@
-import type { ElementPickData } from "../utils/pickingUtils";
+import { useState } from "react";
+import type { ElementInfoData } from "../types/elementInfo";
+import { CopyIcon } from "./Icons";
 
 interface ElementInfoPanelProps {
-  pickedElement: ElementPickData | null;
+  elementInfo: ElementInfoData | null;
   onClose: () => void;
 }
 
-function ElementInfoPanel({ pickedElement, onClose }: ElementInfoPanelProps) {
-  if (!pickedElement) return null;
+function ElementInfoPanel({ elementInfo, onClose }: ElementInfoPanelProps) {
+  const [copiedFieldLabel, setCopiedFieldLabel] = useState<string | null>(null);
+  if (!elementInfo) return null;
+
+  const canCopy = (value: string): boolean => value.trim().length > 0 && value.trim() !== "-";
+
+  const handleCopy = async (label: string, value: string) => {
+    if (!canCopy(value)) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedFieldLabel(label);
+      window.setTimeout(() => {
+        setCopiedFieldLabel((prev) => (prev === label ? null : prev));
+      }, 900);
+    } catch (error) {
+      console.warn("Failed to copy value:", error);
+    }
+  };
 
   return (
     <div className="element-info-panel">
@@ -17,20 +35,23 @@ function ElementInfoPanel({ pickedElement, onClose }: ElementInfoPanelProps) {
         </button>
       </div>
       <div className="element-info-content">
-        <div className="picked-element-item">
-          <span className="picked-element-label">Type:</span>
-          <span className="picked-element-value">{pickedElement.typeName}</span>
-        </div>
-        <div className="picked-element-item">
-          <span className="picked-element-label">Name:</span>
-          <span className="picked-element-value" title={pickedElement.elementName}>
-            {pickedElement.elementName}
-          </span>
-        </div>
-        <div className="picked-element-item">
-          <span className="picked-element-label">Express ID:</span>
-          <span className="picked-element-value">{pickedElement.expressID}</span>
-        </div>
+        {elementInfo.fields.map((field) => (
+          <div key={field.label} className="picked-element-item">
+            <span className="picked-element-label">{field.label}:</span>
+            <span className="picked-element-value" title={field.value}>
+              {field.value}
+            </span>
+            {canCopy(field.value) && (
+              <button
+                className="copy-field-btn"
+                onClick={() => handleCopy(field.label, field.value)}
+                title={copiedFieldLabel === field.label ? "Copied" : "Copy value"}
+              >
+                <CopyIcon />
+              </button>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

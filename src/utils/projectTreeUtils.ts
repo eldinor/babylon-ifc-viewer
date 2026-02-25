@@ -61,6 +61,7 @@ function getNodeKind(typeCode: number): IfcProjectTreeNodeKind {
   if (typeCode === WebIFC.IFCBUILDING) return "building";
   if (typeCode === WebIFC.IFCBUILDINGSTOREY) return "storey";
   if (typeCode === WebIFC.IFCSPACE) return "space";
+  if (typeCode > 0) return "element";
   return "unknown";
 }
 

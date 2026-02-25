@@ -171,6 +171,17 @@ const [ifcReady, setIfcReady] = useState(false);
       engine.resize()
     }
     window.addEventListener('resize', handleResize)
+    let resizeTimeoutId: number | undefined
+    const resizeObserver = new ResizeObserver(() => {
+      if (resizeTimeoutId !== undefined) {
+        window.clearTimeout(resizeTimeoutId)
+      }
+      // Avoid resizing every frame during sidebar width transition.
+      resizeTimeoutId = window.setTimeout(() => {
+        engine.resize()
+      }, 120)
+    })
+    resizeObserver.observe(canvasRef.current)
 
     // Initialize WebIFC
     const initIfc = async () => {
@@ -189,6 +200,10 @@ const [ifcReady, setIfcReady] = useState(false);
     // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize)
+      resizeObserver.disconnect()
+      if (resizeTimeoutId !== undefined) {
+        window.clearTimeout(resizeTimeoutId)
+      }
       
       // Dispose IFC model if loaded
       if (sceneRef.current) {
@@ -290,7 +305,7 @@ const [ifcReady, setIfcReady] = useState(false);
         })
       }
 
-// Setup picking handler
+      // Setup picking handler
       if (ifcAPIRef.current && sceneRef.current) {
         setupPickingHandler(sceneRef.current, ifcAPIRef.current, {
           onElementPicked: (data) => {
@@ -299,12 +314,7 @@ const [ifcReady, setIfcReady] = useState(false);
             }
             console.log("Picked element:", data);
           },
-          onClear: () => {
-            if (onElementPicked) {
-              onElementPicked(null);
-            }
-            console.log("Highlight cleared");
-          },
+          // Keep panel open when clicking outside model; only close via close icon or model reload.
         });
       }
 

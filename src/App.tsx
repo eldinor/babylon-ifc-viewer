@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import type { MouseEvent } from "react";
 import "./App.css";
@@ -10,23 +10,35 @@ import { useModelData } from "./hooks/useModelData";
 import { useStoreyVisibility } from "./hooks/useStoreyVisibility";
 import type { ElementPickData } from "./utils/pickingUtils";
 import type { TabType } from "./types/app";
-import { collectSubtreeExpressIDs, type IfcProjectTreeNode } from "./utils/projectTreeUtils";
+import { collectSubtreeExpressIDs, type IfcProjectTreeIndex, type IfcProjectTreeNode } from "./utils/projectTreeUtils";
+import type { ElementInfoData } from "./types/elementInfo";
+import { buildElementInfoFromPick, buildElementInfoFromProjectNode } from "./utils/elementInfoUtils";
 
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const projectTreeIndexRef = useRef<IfcProjectTreeIndex | null>(null);
+  const storeyMapRef = useRef<Map<number, number> | undefined>(undefined);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>("project");
-  const [pickedElement, setPickedElement] = useState<ElementPickData | null>(null);
+  const [elementInfo, setElementInfo] = useState<ElementInfoData | null>(null);
   const [selectedProjectExpressID, setSelectedProjectExpressID] = useState<number | null>(null);
   const [visibleExpressIDs, setVisibleExpressIDs] = useState<Set<number> | null>(null);
 
   const handleModelCleared = useCallback(() => {
-    setPickedElement(null);
+    setElementInfo(null);
   }, []);
 
   const { modelData, projectInfo, storeys, siteInfo, projectTreeIndex, handleModelLoaded: setModelData } = useModelData(
     handleModelCleared,
   );
+
+  useLayoutEffect(() => {
+    projectTreeIndexRef.current = projectTreeIndex;
+  }, [projectTreeIndex]);
+
+  useLayoutEffect(() => {
+    storeyMapRef.current = modelData?.storeyMap;
+  }, [modelData]);
 
   const {
     visibleStoreyIds,
@@ -57,6 +69,7 @@ function App() {
       resetVisibility();
       setSelectedProjectExpressID(null);
       setVisibleExpressIDs(null);
+      setElementInfo(null);
       setActiveTab("project");
     },
     [resetVisibility, setModelData],
@@ -65,6 +78,7 @@ function App() {
   const clearProjectTreeSelection = useCallback(() => {
     setSelectedProjectExpressID(null);
     setVisibleExpressIDs(null);
+    setElementInfo((prev) => (prev?.source === "projectTree" ? null : prev));
   }, []);
 
   const handleSelectProjectNode = useCallback((node: IfcProjectTreeNode | null) => {
@@ -77,7 +91,10 @@ function App() {
     const subtreeIDs = collectSubtreeExpressIDs(node.expressID, projectTreeIndex);
     setSelectedProjectExpressID(node.expressID);
     setVisibleExpressIDs(new Set(subtreeIDs));
-  }, [clearProjectTreeSelection, projectTreeIndex]);
+    if (modelData) {
+      setElementInfo(buildElementInfoFromProjectNode(modelData.ifcAPI, modelData.modelID, node, projectTreeIndex));
+    }
+  }, [clearProjectTreeSelection, modelData, projectTreeIndex]);
 
   const handleStoreyClickWithReset = useCallback(
     (storeyId: number) => {
@@ -114,14 +131,30 @@ function App() {
   );
 
   const handleElementPicked = useCallback((data: ElementPickData | null) => {
-    setPickedElement(data);
+    if (!data) {
+      setElementInfo(null);
+      return;
+    }
+    setElementInfo(buildElementInfoFromPick(data));
+    const treeIndex = projectTreeIndexRef.current;
+    if (!treeIndex) return;
+
+    if (treeIndex.nodes.has(data.expressID)) {
+      setSelectedProjectExpressID(data.expressID);
+      return;
+    }
+
+    const fallbackStoreyID = storeyMapRef.current?.get(data.expressID);
+    if (fallbackStoreyID !== undefined && treeIndex.nodes.has(fallbackStoreyID)) {
+      setSelectedProjectExpressID(fallbackStoreyID);
+    }
   }, []);
 
   return (
     <div className="app">
       <AppHeader fileInputRef={fileInputRef} onOpenIfc={handleOpenIfc} onFileChange={handleFileChange} />
 
-      <ElementInfoPanel pickedElement={pickedElement} onClose={() => setPickedElement(null)} />
+      <ElementInfoPanel elementInfo={elementInfo} onClose={() => setElementInfo(null)} />
 
       <div className="main-container">
         <Sidebar

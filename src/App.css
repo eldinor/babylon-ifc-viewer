@@ -583,7 +583,7 @@
   position: absolute;
   top: 40px; /* Below header */
   left: 300px; /* Right of sidebar */
-  width: 300px;
+  width: 360px;
   height: auto;
   background-color: #0f3460;
   border: 1px solid #16213e;
@@ -637,7 +637,7 @@
 
 .element-info-content {
   flex: 1;
-  padding: 16px;
+  padding: 16px 10px;
   overflow-y: auto;
 }
 
@@ -742,6 +742,25 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.copy-field-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #9ab;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.copy-field-btn:hover {
+  background-color: #1a1a2e;
+  color: #fff;
 }
 
 .picked-element-empty {

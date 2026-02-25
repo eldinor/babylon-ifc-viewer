@@ -17,6 +17,12 @@ interface SidebarProps {
   onToggleSidebar: () => void;
   onSetTab: (tab: TabType) => void;
   onSelectProjectNode: (node: IfcProjectTreeNode | null) => void;
+  onFitProjectNode: (node: IfcProjectTreeNode | null) => void;
+  onManualFitProjectNode: (node: IfcProjectTreeNode | null) => void;
+  onRestoreView: () => void;
+  canRestoreView: boolean;
+  alwaysFitEnabled: boolean;
+  onToggleAlwaysFit: () => void;
   onResetVisibility: () => void;
 }
 
@@ -32,6 +38,12 @@ function Sidebar({
   onToggleSidebar,
   onSetTab,
   onSelectProjectNode,
+  onFitProjectNode,
+  onManualFitProjectNode,
+  onRestoreView,
+  canRestoreView,
+  alwaysFitEnabled,
+  onToggleAlwaysFit,
   onResetVisibility,
 }: SidebarProps) {
   return (
@@ -62,6 +74,12 @@ function Sidebar({
             selectedExpressID={selectedProjectExpressID}
             lengthUnitSymbol={lengthUnitSymbol}
             onSelectNode={onSelectProjectNode}
+            onFitNode={onFitProjectNode}
+            onManualFitNode={onManualFitProjectNode}
+            onRestoreView={onRestoreView}
+            canRestoreView={canRestoreView}
+            alwaysFitEnabled={alwaysFitEnabled}
+            onToggleAlwaysFit={onToggleAlwaysFit}
           />
         )}
         {activeTab === "info" && <InfoTab projectInfo={projectInfo} />}

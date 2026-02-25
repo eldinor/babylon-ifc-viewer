@@ -32,6 +32,8 @@ export interface IfcModelData {
   ifcAPI: WebIFC.IfcAPI;
   dimensionsByExpressID: Map<number, { length: number; width: number; height: number; elevation: number }>;
   lengthUnitSymbol: string;
+  sourceFileName: string;
+  sourceFileSizeBytes: number | null;
 }
 
 interface BabylonSceneProps {
@@ -52,6 +54,18 @@ function toColor3(hex: string): Color3 {
   return Color3.FromHexString(hex);
 }
 
+interface CameraViewSnapshot {
+  alpha: number;
+  beta: number;
+  radius: number;
+  target: Vector3;
+}
+
+function getMeshExpressID(mesh: Scene["meshes"][number]): number | null {
+  const metadata = mesh.metadata as { expressID?: unknown } | null;
+  return typeof metadata?.expressID === "number" ? metadata.expressID : null;
+}
+
 function BabylonScene({
   onModelLoaded,
   visibleExpressIDs,
@@ -65,6 +79,7 @@ function BabylonScene({
   const ifcAPIRef = useRef<WebIFC.IfcAPI | null>(null);
   const modelRef = useRef<RawIfcModel | null>(null);
   const pickingManagerRef = useRef<PickingManager | null>(null);
+  const savedViewRef = useRef<CameraViewSnapshot | null>(null);
   const onModelLoadedRef = useRef<typeof onModelLoaded>(onModelLoaded);
   const onElementPickedRef = useRef<typeof onElementPicked>(onElementPicked);
   const [isLoading, setIsLoading] = useState(false);
@@ -231,6 +246,78 @@ const [ifcReady, setIfcReady] = useState(false);
     pickingManagerRef.current.setHighlightOptions({ highlightColor: toColor3(highlightColor) });
   }, [highlightColor]);
 
+  const fitToExpressIDs = useCallback((expressIDs: number[]) => {
+    const scene = sceneRef.current;
+    if (!scene || expressIDs.length === 0) return;
+    const camera = scene.activeCamera as ArcRotateCamera | null;
+    if (!camera) return;
+
+    const targetIDs = new Set(expressIDs);
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let minZ = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    let maxZ = Number.NEGATIVE_INFINITY;
+    let hasBounds = false;
+
+    scene.meshes.forEach((mesh) => {
+      const expressID = getMeshExpressID(mesh);
+      if (expressID === null || !targetIDs.has(expressID)) return;
+      const boundingInfo = mesh.getBoundingInfo();
+      if (!boundingInfo) return;
+      const min = boundingInfo.boundingBox.minimumWorld;
+      const max = boundingInfo.boundingBox.maximumWorld;
+      minX = Math.min(minX, min.x);
+      minY = Math.min(minY, min.y);
+      minZ = Math.min(minZ, min.z);
+      maxX = Math.max(maxX, max.x);
+      maxY = Math.max(maxY, max.y);
+      maxZ = Math.max(maxZ, max.z);
+      hasBounds = true;
+    });
+
+    if (!hasBounds) return;
+    const center = new Vector3((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
+    const size = new Vector3(maxX - minX, maxY - minY, maxZ - minZ);
+    const diagonal = Math.max(size.length(), 0.5);
+    const nextRadius = diagonal * 1.6;
+
+    camera.target.copyFrom(center);
+    if (camera.lowerRadiusLimit !== null && camera.lowerRadiusLimit !== undefined) {
+      camera.radius = Math.max(nextRadius, camera.lowerRadiusLimit);
+    } else {
+      camera.radius = nextRadius;
+    }
+  }, []);
+
+  const saveCurrentView = useCallback((): boolean => {
+    const scene = sceneRef.current;
+    if (!scene) return false;
+    const camera = scene.activeCamera as ArcRotateCamera | null;
+    if (!camera) return false;
+    savedViewRef.current = {
+      alpha: camera.alpha,
+      beta: camera.beta,
+      radius: camera.radius,
+      target: camera.target.clone(),
+    };
+    return true;
+  }, []);
+
+  const restoreSavedView = useCallback((): boolean => {
+    const scene = sceneRef.current;
+    if (!scene || !savedViewRef.current) return false;
+    const camera = scene.activeCamera as ArcRotateCamera | null;
+    if (!camera) return false;
+    const snap = savedViewRef.current;
+    camera.alpha = snap.alpha;
+    camera.beta = snap.beta;
+    camera.radius = snap.radius;
+    camera.target.copyFrom(snap.target);
+    return true;
+  }, []);
+
 // Function to load IFC file
   const loadIfcFile = useCallback(async (file: File | string) => {
     if (!ifcAPIRef.current || !sceneRef.current) {
@@ -248,6 +335,10 @@ const [ifcReady, setIfcReady] = useState(false);
     }
 
     try {
+      const sourceFileName =
+        typeof file === "string" ? file.split(/[\\/]/).pop() || file : file.name;
+      const sourceFileSizeBytes = typeof file === "string" ? null : file.size;
+
       // Dispose previous model
       if (sceneRef.current) {
         disposeIfcModel(sceneRef.current)
@@ -322,6 +413,8 @@ const [ifcReady, setIfcReady] = useState(false);
           ifcAPI: ifcAPIRef.current,
           dimensionsByExpressID,
           lengthUnitSymbol: lengthUnit.symbol,
+          sourceFileName,
+          sourceFileSizeBytes,
         })
       }
 
@@ -379,6 +472,22 @@ const [ifcReady, setIfcReady] = useState(false);
       delete window.loadIfcFile
     }
   }, [loadIfcFile])
+
+  useEffect(() => {
+    window.fitToExpressIDs = fitToExpressIDs;
+    return () => {
+      delete window.fitToExpressIDs;
+    };
+  }, [fitToExpressIDs]);
+
+  useEffect(() => {
+    window.saveCurrentView = saveCurrentView;
+    window.restoreSavedView = restoreSavedView;
+    return () => {
+      delete window.saveCurrentView;
+      delete window.restoreSavedView;
+    };
+  }, [restoreSavedView, saveCurrentView]);
 
   // Auto-load sample.ifc when WebIFC is ready
   useEffect(() => {

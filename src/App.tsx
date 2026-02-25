@@ -24,6 +24,12 @@ function isHexColor(value: string | null): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
 }
 
+function formatFileSizeMb(sizeBytes: number | null): string {
+  if (sizeBytes === null) return "-";
+  const mb = sizeBytes / (1024 * 1024);
+  return `${mb.toFixed(2)} MB`;
+}
+
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectTreeIndexRef = useRef<IfcProjectTreeIndex | null>(null);
@@ -32,6 +38,8 @@ function App() {
   const [elementInfo, setElementInfo] = useState<ElementInfoData | null>(null);
   const [selectedProjectExpressID, setSelectedProjectExpressID] = useState<number | null>(null);
   const [visibleExpressIDs, setVisibleExpressIDs] = useState<Set<number> | null>(null);
+  const [alwaysFitEnabled, setAlwaysFitEnabled] = useState(false);
+  const [canRestoreView, setCanRestoreView] = useState(false);
   const [sceneBackgroundColor, setSceneBackgroundColor] = useState<string>(() => {
     const stored = localStorage.getItem(STORAGE_KEYS.sceneBackgroundColor);
     return isHexColor(stored) ? stored : DEFAULT_SCENE_BACKGROUND;
@@ -62,6 +70,14 @@ function App() {
     return chain;
   }, [projectTreeIndex, selectedProjectExpressID]);
 
+  const footerFileInfo = useMemo(() => {
+    if (!modelData) return null;
+    return {
+      name: modelData.sourceFileName,
+      sizeMb: formatFileSizeMb(modelData.sourceFileSizeBytes),
+    };
+  }, [modelData]);
+
   useLayoutEffect(() => {
     projectTreeIndexRef.current = projectTreeIndex;
   }, [projectTreeIndex]);
@@ -82,6 +98,13 @@ function App() {
   const handleHighlightColorChange = useCallback((color: string) => {
     if (!isHexColor(color)) return;
     setHighlightColor(color);
+  }, []);
+
+  const handleClearUserSettings = useCallback(() => {
+    setSceneBackgroundColor(DEFAULT_SCENE_BACKGROUND);
+    setHighlightColor(DEFAULT_HIGHLIGHT);
+    localStorage.removeItem(STORAGE_KEYS.sceneBackgroundColor);
+    localStorage.removeItem(STORAGE_KEYS.highlightColor);
   }, []);
 
   const handleFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
@@ -136,7 +159,10 @@ function App() {
         ),
       );
     }
-  }, [clearProjectTreeSelection, modelData, projectTreeIndex]);
+    if (alwaysFitEnabled && window.fitToExpressIDs) {
+      window.fitToExpressIDs(subtreeIDs);
+    }
+  }, [alwaysFitEnabled, clearProjectTreeSelection, modelData, projectTreeIndex]);
 
   const handleBreadcrumbClick = useCallback((expressID: number) => {
     if (!projectTreeIndex) return;
@@ -145,6 +171,35 @@ function App() {
     setActiveTab("project");
     handleSelectProjectNode(node);
   }, [handleSelectProjectNode, projectTreeIndex]);
+
+  const handleFitProjectNode = useCallback((node: IfcProjectTreeNode | null) => {
+    if (!node || !projectTreeIndex || !window.fitToExpressIDs) return;
+    const subtreeIDs = collectSubtreeExpressIDs(node.expressID, projectTreeIndex);
+    window.fitToExpressIDs(subtreeIDs);
+  }, [projectTreeIndex]);
+
+  const handleManualFitProjectNode = useCallback((node: IfcProjectTreeNode | null) => {
+    if (!node) return;
+    const saved = window.saveCurrentView?.() ?? false;
+    if (saved) {
+      setCanRestoreView(true);
+    }
+    handleFitProjectNode(node);
+  }, [handleFitProjectNode]);
+
+  const handleRestoreView = useCallback(() => {
+    const restored = window.restoreSavedView?.() ?? false;
+    if (!restored) {
+      setCanRestoreView(false);
+    }
+  }, []);
+
+  const handleBreadcrumbFit = useCallback((expressID: number) => {
+    if (!projectTreeIndex) return;
+    const node = projectTreeIndex.nodes.get(expressID);
+    if (!node) return;
+    handleFitProjectNode(node);
+  }, [handleFitProjectNode, projectTreeIndex]);
 
   const handleElementPicked = useCallback((data: ElementPickData | null) => {
     if (!data) {
@@ -174,12 +229,18 @@ function App() {
             { unitSymbol: modelData.lengthUnitSymbol },
           ),
         );
+        if (alwaysFitEnabled) {
+          handleFitProjectNode(node);
+        }
         return;
       }
     }
 
+    if (alwaysFitEnabled && window.fitToExpressIDs) {
+      window.fitToExpressIDs([data.expressID]);
+    }
     setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData.lengthUnitSymbol }));
-  }, [modelData, projectTreeIndex]);
+  }, [alwaysFitEnabled, handleFitProjectNode, modelData, projectTreeIndex]);
 
   useLayoutEffect(() => {
     localStorage.setItem(STORAGE_KEYS.sceneBackgroundColor, sceneBackgroundColor);
@@ -198,10 +259,12 @@ function App() {
         onOpenHelp={handleOpenHelp}
         breadcrumbs={breadcrumbs}
         onBreadcrumbClick={handleBreadcrumbClick}
+        onBreadcrumbFit={handleBreadcrumbFit}
         sceneBackgroundColor={sceneBackgroundColor}
         highlightColor={highlightColor}
         onSceneBackgroundColorChange={handleSceneBackgroundColorChange}
         onHighlightColorChange={handleHighlightColorChange}
+        onClearUserSettings={handleClearUserSettings}
       />
 
       <ElementInfoPanel
@@ -223,6 +286,12 @@ function App() {
           onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
           onSetTab={setActiveTab}
           onSelectProjectNode={handleSelectProjectNode}
+          onFitProjectNode={handleFitProjectNode}
+          onManualFitProjectNode={handleManualFitProjectNode}
+          onRestoreView={handleRestoreView}
+          canRestoreView={canRestoreView}
+          alwaysFitEnabled={alwaysFitEnabled}
+          onToggleAlwaysFit={() => setAlwaysFitEnabled((prev) => !prev)}
           onResetVisibility={handleResetVisibility}
         />
 
@@ -237,7 +306,16 @@ function App() {
         </main>
       </div>
 
-      <footer className="footer">(c) 2026 Babylon.js IFC Viewer</footer>
+      <footer className="footer">
+        {footerFileInfo ? (
+          <>
+            <span>{footerFileInfo.name}</span>
+            <span className="footer-file-size">{footerFileInfo.sizeMb}</span>
+          </>
+        ) : (
+          "No model loaded"
+        )}
+      </footer>
     </div>
   );
 }

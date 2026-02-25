@@ -144,6 +144,23 @@
   cursor: pointer;
 }
 
+.settings-clear-btn {
+  width: 100%;
+  height: 24px;
+  margin-top: 10px;
+  border: 1px solid #1a1a2e;
+  border-radius: 4px;
+  background-color: #0f3460;
+  color: #cfe6ff;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.settings-clear-btn:hover {
+  background-color: #1a1a2e;
+  color: #fff;
+}
+
 .main-container {
   display: flex;
   flex: 1;
@@ -240,6 +257,82 @@
 
 .tab-title-row h3 {
   margin: 0;
+}
+
+.tree-title-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tree-fit-btn {
+  width: 24px;
+  height: 22px;
+  border: 1px solid #1a1a2e;
+  border-radius: 4px;
+  background-color: #0f3460;
+  color: #cfe6ff;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tree-fit-btn:hover {
+  background-color: #1a1a2e;
+  color: #fff;
+}
+
+.tree-restore-btn {
+  width: 24px;
+  height: 22px;
+  border: 1px solid #1a1a2e;
+  border-radius: 4px;
+  background-color: #0f3460;
+  color: #cfe6ff;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tree-restore-btn:hover:not(:disabled) {
+  background-color: #1a1a2e;
+  color: #fff;
+}
+
+.tree-restore-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tree-always-fit-btn {
+  width: 24px;
+  height: 22px;
+  border-radius: 4px;
+  padding: 0;
+  cursor: pointer;
+  border: 1px solid #1a1a2e;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tree-always-fit-btn.enabled {
+  background-color: #1f6f3d;
+  color: #eafff2;
+  border-color: #2f8a54;
+}
+
+.tree-always-fit-btn.disabled {
+  background-color: #0f3460;
+  color: #cfe6ff;
+}
+
+.tree-always-fit-btn:hover {
+  filter: brightness(1.08);
 }
 
 .tree-to-top-btn {
@@ -479,10 +572,15 @@
   color: white;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 0 16px;
+  justify-content: flex-start;
+  padding: 0 24px;
   font-size: 12px;
   border-top: 1px solid #16213e;
+  gap: 8px;
+}
+
+.footer-file-size {
+  color: #9fb5cb;
 }
 
 /* Babylon Scene Container */

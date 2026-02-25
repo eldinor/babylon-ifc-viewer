@@ -1,11 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IfcProjectTreeIndex, IfcProjectTreeNode } from "../../utils/projectTreeUtils";
+import { AlwaysFitIcon, FitViewIcon, RestoreViewIcon } from "../Icons";
 
 interface ProjectTabProps {
   treeIndex: IfcProjectTreeIndex | null;
   selectedExpressID: number | null;
   lengthUnitSymbol: string;
   onSelectNode: (node: IfcProjectTreeNode | null) => void;
+  onFitNode: (node: IfcProjectTreeNode | null) => void;
+  onManualFitNode: (node: IfcProjectTreeNode | null) => void;
+  onRestoreView: () => void;
+  canRestoreView: boolean;
+  alwaysFitEnabled: boolean;
+  onToggleAlwaysFit: () => void;
 }
 
 interface VisibleNode {
@@ -18,6 +25,12 @@ function ProjectTab({
   selectedExpressID,
   lengthUnitSymbol,
   onSelectNode,
+  onFitNode,
+  onManualFitNode,
+  onRestoreView,
+  canRestoreView,
+  alwaysFitEnabled,
+  onToggleAlwaysFit,
 }: ProjectTabProps) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set(treeIndex?.roots ?? []));
   const [activeExpressID, setActiveExpressID] = useState<number | null>(() => treeIndex?.roots[0] ?? null);
@@ -198,6 +211,28 @@ function ProjectTab({
     }
   };
 
+  const triggerManualFitCurrent = useCallback(() => {
+    if (!treeIndex) return;
+    const targetID = selectedExpressID ?? effectiveActiveExpressID ?? treeIndex.roots[0];
+    if (targetID === null || targetID === undefined) return;
+    const node = treeIndex.nodes.get(targetID) ?? null;
+    onManualFitNode(node);
+  }, [effectiveActiveExpressID, onManualFitNode, selectedExpressID, treeIndex]);
+
+  useEffect(() => {
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== "KeyF" || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
+      event.preventDefault();
+      triggerManualFitCurrent();
+    };
+
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => window.removeEventListener("keydown", onWindowKeyDown);
+  }, [triggerManualFitCurrent]);
+
   const formatElevation = (value: number): string => {
     const rounded = Math.round(value * 1000) / 1000;
     const formatted = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(3).replace(/\.?0+$/, "");
@@ -221,14 +256,41 @@ function ProjectTab({
     <div className="tab-panel">
       <div className="tab-title-row">
         <h3>Project Tree</h3>
-        <button
-          type="button"
-          className="tree-to-top-btn"
-          title="Scroll to top"
-          onClick={() => treeContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
-        >
-          ^
-        </button>
+        <div className="tree-title-actions">
+          <button
+            type="button"
+            className="tree-restore-btn"
+            title="Restore view before manual fit"
+            onClick={onRestoreView}
+            disabled={!canRestoreView}
+          >
+            <RestoreViewIcon />
+          </button>
+          <button
+            type="button"
+            className="tree-fit-btn"
+            title="Fit selected (F)"
+            onClick={triggerManualFitCurrent}
+          >
+            <FitViewIcon />
+          </button>
+          <button
+            type="button"
+            className={`tree-always-fit-btn ${alwaysFitEnabled ? "enabled" : "disabled"}`}
+            title={alwaysFitEnabled ? "Always fit enabled" : "Always fit disabled"}
+            onClick={onToggleAlwaysFit}
+          >
+            <AlwaysFitIcon />
+          </button>
+          <button
+            type="button"
+            className="tree-to-top-btn"
+            title="Scroll to top"
+            onClick={() => treeContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+          >
+            ^
+          </button>
+        </div>
       </div>
       <div className="project-tree" tabIndex={0} onKeyDown={handleKeyDown} ref={treeContainerRef}>
         {visibleNodes.map(({ expressID, depth }) => {
@@ -244,6 +306,7 @@ function ProjectTab({
               <div
                 className={`tree-item ${isSelected ? "selected" : ""} ${isActive ? "active" : ""}`}
                 onClick={() => handleNodeClick(expressID)}
+                onDoubleClick={() => onFitNode(node)}
                 ref={(el) => {
                   if (el) {
                     rowRefs.current.set(expressID, el);

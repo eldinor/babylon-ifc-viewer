@@ -84,3 +84,31 @@ export const CopyIcon = () => (
     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
   </svg>
 )
+
+export const FitViewIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 9 3 3 9 3"></polyline>
+    <polyline points="15 3 21 3 21 9"></polyline>
+    <polyline points="21 15 21 21 15 21"></polyline>
+    <polyline points="9 21 3 21 3 15"></polyline>
+  </svg>
+)
+
+export const RestoreViewIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="1 4 1 10 7 10"></polyline>
+    <path d="M3.5 15a9 9 0 1 0 2.1-9.4L1 10"></path>
+  </svg>
+)
+
+export const AlwaysFitIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="10" cy="10" r="5"></circle>
+    <line x1="10" y1="2" x2="10" y2="4"></line>
+    <line x1="10" y1="16" x2="10" y2="18"></line>
+    <line x1="2" y1="10" x2="4" y2="10"></line>
+    <line x1="16" y1="10" x2="18" y2="10"></line>
+    <rect x="13.5" y="13.5" width="8" height="7" rx="1.5"></rect>
+    <path d="M15.5 13.5v-1a2 2 0 1 1 4 0v1"></path>
+  </svg>
+)

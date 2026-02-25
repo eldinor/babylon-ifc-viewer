@@ -14,10 +14,12 @@ interface AppHeaderProps {
   onOpenHelp: () => void;
   breadcrumbs: HeaderBreadcrumbItem[];
   onBreadcrumbClick: (expressID: number) => void;
+  onBreadcrumbFit: (expressID: number) => void;
   sceneBackgroundColor: string;
   highlightColor: string;
   onSceneBackgroundColorChange: (color: string) => void;
   onHighlightColorChange: (color: string) => void;
+  onClearUserSettings: () => void;
 }
 
 function AppHeader({
@@ -27,10 +29,12 @@ function AppHeader({
   onOpenHelp,
   breadcrumbs,
   onBreadcrumbClick,
+  onBreadcrumbFit,
   sceneBackgroundColor,
   highlightColor,
   onSceneBackgroundColorChange,
   onHighlightColorChange,
+  onClearUserSettings,
 }: AppHeaderProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -62,6 +66,7 @@ function AppHeader({
                   className={`header-crumb-btn ${isLast ? "current" : ""}`}
                   title={crumb.name}
                   onClick={() => onBreadcrumbClick(crumb.expressID)}
+                  onDoubleClick={() => onBreadcrumbFit(crumb.expressID)}
                 >
                   {crumb.name}
                 </button>
@@ -102,6 +107,16 @@ function AppHeader({
                   onChange={(event) => onHighlightColorChange(event.target.value)}
                 />
               </label>
+              <button
+                type="button"
+                className="settings-clear-btn"
+                onClick={() => {
+                  onClearUserSettings();
+                  setSettingsOpen(false);
+                }}
+              >
+                Clear all
+              </button>
             </div>
           )}
         </div>

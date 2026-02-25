@@ -6,6 +6,10 @@ interface IfcLineLike {
   type?: number;
   Name?: { value?: string };
   LongName?: { value?: string };
+  Elevation?: unknown;
+  RefElevation?: unknown;
+  ElevationOfRefHeight?: unknown;
+  ObjectPlacement?: unknown;
   RelatedObjects?: IfcRef[];
   RelatingObject?: IfcRef;
   RelatedElements?: IfcRef[];
@@ -23,6 +27,7 @@ export interface IfcProjectTreeNode {
   kind: IfcProjectTreeNodeKind;
   name: string;
   childExpressIDs: number[];
+  elevation?: number;
 }
 
 export interface IfcProjectTreeIndex {
@@ -53,6 +58,39 @@ function getRefIds(refs: unknown): number[] {
 
 function getEntityName(line: IfcLineLike, expressID: number): string {
   return line.Name?.value || line.LongName?.value || `${expressID}`;
+}
+
+function extractNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  if (value && typeof value === "object" && "value" in value) {
+    return extractNumber((value as { value?: unknown }).value);
+  }
+  return undefined;
+}
+
+function extractPlacementElevation(line: IfcLineLike): number | undefined {
+  const placement = line.ObjectPlacement as Record<string, unknown> | undefined;
+  if (!placement || typeof placement !== "object") return undefined;
+  const relativePlacement = placement.RelativePlacement as Record<string, unknown> | undefined;
+  if (!relativePlacement || typeof relativePlacement !== "object") return undefined;
+  const location = relativePlacement.Location as Record<string, unknown> | undefined;
+  if (!location || typeof location !== "object") return undefined;
+  const coords = location.Coordinates;
+  if (!Array.isArray(coords) || coords.length < 3) return undefined;
+  return extractNumber(coords[2]);
+}
+
+function extractNodeElevation(line: IfcLineLike): number | undefined {
+  return (
+    extractNumber(line.Elevation) ??
+    extractNumber(line.RefElevation) ??
+    extractNumber(line.ElevationOfRefHeight) ??
+    extractPlacementElevation(line)
+  );
 }
 
 function getNodeKind(typeCode: number): IfcProjectTreeNodeKind {
@@ -160,6 +198,7 @@ export function buildIfcProjectTreeIndex(ifcAPI: WebIFC.IfcAPI, modelID: number)
       kind: getNodeKind(typeCode),
       name: getEntityName(line, expressID),
       childExpressIDs,
+      elevation: extractNodeElevation(line),
     });
   });
 

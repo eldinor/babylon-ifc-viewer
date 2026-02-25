@@ -4,6 +4,7 @@ import type { IfcProjectTreeIndex, IfcProjectTreeNode } from "../../utils/projec
 interface ProjectTabProps {
   treeIndex: IfcProjectTreeIndex | null;
   selectedExpressID: number | null;
+  lengthUnitSymbol: string;
   onSelectNode: (node: IfcProjectTreeNode | null) => void;
 }
 
@@ -15,6 +16,7 @@ interface VisibleNode {
 function ProjectTab({
   treeIndex,
   selectedExpressID,
+  lengthUnitSymbol,
   onSelectNode,
 }: ProjectTabProps) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set(treeIndex?.roots ?? []));
@@ -195,6 +197,12 @@ function ProjectTab({
     }
   };
 
+  const formatElevation = (value: number): string => {
+    const rounded = Math.round(value * 1000) / 1000;
+    const formatted = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(3).replace(/\.?0+$/, "");
+    return `${formatted} ${lengthUnitSymbol}`;
+  };
+
   if (!treeIndex || treeIndex.roots.length === 0) {
     return (
       <div className="tab-panel">
@@ -209,42 +217,6 @@ function ProjectTab({
   return (
     <div className="tab-panel">
       <h3>Project Tree</h3>
-      <div className="project-tree-controls">
-        <input
-          className="tree-search-input"
-          type="text"
-          value={searchQuery}
-          onChange={(event) => {
-            setSearchQuery(event.target.value);
-            setMatchIndex(0);
-          }}
-          placeholder="Search name, type, or Express ID"
-          aria-label="Search project tree"
-        />
-        <div className="tree-search-actions">
-          <button
-            type="button"
-            className="tree-search-btn"
-            onClick={() => jumpToMatch(-1)}
-            disabled={matchedExpressIDs.length === 0}
-            title="Previous match"
-          >
-            Prev
-          </button>
-          <button
-            type="button"
-            className="tree-search-btn"
-            onClick={() => jumpToMatch(1)}
-            disabled={matchedExpressIDs.length === 0}
-            title="Next match"
-          >
-            Next
-          </button>
-          <span className="tree-search-count">
-            {matchedExpressIDs.length > 0 ? `${matchIndex + 1}/${matchedExpressIDs.length}` : "0/0"}
-          </span>
-        </div>
-      </div>
       <div className="project-tree" tabIndex={0} onKeyDown={handleKeyDown}>
         {visibleNodes.map(({ expressID, depth }) => {
           const node = treeIndex.nodes.get(expressID);
@@ -281,10 +253,52 @@ function ProjectTab({
                 <span className="tree-name" title={`${node.typeName} (${node.expressID})`}>
                   {node.name}
                 </span>
+                {(node.kind === "site" || node.kind === "building" || node.kind === "storey") &&
+                  node.elevation !== undefined && (
+                    <span className="tree-elevation" title={`Elevation: ${formatElevation(node.elevation)}`}>
+                      {formatElevation(node.elevation)}
+                    </span>
+                  )}
               </div>
             </div>
           );
         })}
+      </div>
+      <div className="project-tree-controls">
+        <input
+          className="tree-search-input"
+          type="text"
+          value={searchQuery}
+          onChange={(event) => {
+            setSearchQuery(event.target.value);
+            setMatchIndex(0);
+          }}
+          placeholder="Search name, type, or Express ID"
+          aria-label="Search project tree"
+        />
+        <div className="tree-search-actions">
+          <button
+            type="button"
+            className="tree-search-btn"
+            onClick={() => jumpToMatch(-1)}
+            disabled={matchedExpressIDs.length === 0}
+            title="Previous match"
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            className="tree-search-btn"
+            onClick={() => jumpToMatch(1)}
+            disabled={matchedExpressIDs.length === 0}
+            title="Next match"
+          >
+            Next
+          </button>
+          <span className="tree-search-count">
+            {matchedExpressIDs.length > 0 ? `${matchIndex + 1}/${matchedExpressIDs.length}` : "0/0"}
+          </span>
+        </div>
       </div>
     </div>
   );

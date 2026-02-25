@@ -30,7 +30,7 @@ export interface IfcModelData {
   modelID: number;
   ifcGlobalId: string; // GlobalId from IFC file
   ifcAPI: WebIFC.IfcAPI;
-  dimensionsByExpressID: Map<number, { length: number; width: number; height: number }>;
+  dimensionsByExpressID: Map<number, { length: number; width: number; height: number; elevation: number }>;
   lengthUnitSymbol: string;
 }
 
@@ -65,12 +65,22 @@ function BabylonScene({
   const ifcAPIRef = useRef<WebIFC.IfcAPI | null>(null);
   const modelRef = useRef<RawIfcModel | null>(null);
   const pickingManagerRef = useRef<PickingManager | null>(null);
+  const onModelLoadedRef = useRef<typeof onModelLoaded>(onModelLoaded);
+  const onElementPickedRef = useRef<typeof onElementPicked>(onElementPicked);
   const [isLoading, setIsLoading] = useState(false);
 const [error, setError] = useState<string | null>(null);
 const [ifcReady, setIfcReady] = useState(false);
 
+  useEffect(() => {
+    onModelLoadedRef.current = onModelLoaded;
+  }, [onModelLoaded]);
+
+  useEffect(() => {
+    onElementPickedRef.current = onElementPicked;
+  }, [onElementPicked]);
+
   const buildDimensionsMap = useCallback((meshes: Scene["meshes"]) => {
-    const map = new Map<number, { length: number; width: number; height: number }>();
+    const map = new Map<number, { length: number; width: number; height: number; elevation: number }>();
     meshes.forEach((mesh) => {
       const metadata = mesh.metadata as { expressID?: unknown } | null;
       const expressID = typeof metadata?.expressID === "number" ? metadata.expressID : null;
@@ -78,11 +88,13 @@ const [ifcReady, setIfcReady] = useState(false);
       const boundingInfo = mesh.getBoundingInfo();
       if (!boundingInfo) return;
       const ext = boundingInfo.boundingBox.extendSizeWorld;
+      const center = boundingInfo.boundingBox.centerWorld;
       const length = ext.x * 2;
       const width = ext.y * 2;
       const height = ext.z * 2;
-      if ([length, width, height].every(Number.isFinite)) {
-        map.set(expressID, { length, width, height });
+      const elevation = center.y;
+      if ([length, width, height, elevation].every(Number.isFinite)) {
+        map.set(expressID, { length, width, height, elevation });
       }
     });
     return map;
@@ -231,8 +243,8 @@ const [ifcReady, setIfcReady] = useState(false);
 
     // Clear any existing element selection and highlights immediately
     // This ensures the Element Info panel doesn't persist from previous model
-    if (onElementPicked) {
-      onElementPicked(null);
+    if (onElementPickedRef.current) {
+      onElementPickedRef.current(null);
     }
 
     try {
@@ -300,10 +312,10 @@ const [ifcReady, setIfcReady] = useState(false);
       }
 
 // Notify parent component with full model data
-      if (onModelLoaded && ifcAPIRef.current) {
+      if (onModelLoadedRef.current && ifcAPIRef.current) {
         const dimensionsByExpressID = buildDimensionsMap(meshes);
         const lengthUnit = getIfcLengthUnitInfo(ifcAPIRef.current, model.modelID);
-        onModelLoaded({
+        onModelLoadedRef.current({
           projectInfo,
           modelID: model.modelID,
           ifcGlobalId,
@@ -318,8 +330,8 @@ const [ifcReady, setIfcReady] = useState(false);
         pickingManagerRef.current = setupPickingHandler(sceneRef.current, ifcAPIRef.current, {
           highlightColor: toColor3(highlightColor),
           onElementPicked: (data) => {
-            if (onElementPicked) {
-              onElementPicked(data);
+            if (onElementPickedRef.current) {
+              onElementPickedRef.current(data);
             }
             console.log("Picked element:", data);
           },
@@ -331,13 +343,13 @@ const [ifcReady, setIfcReady] = useState(false);
     } catch (err) {
       console.error('Failed to load IFC:', err)
       setError(err instanceof Error ? err.message : 'Failed to load IFC file')
-      if (onModelLoaded) {
-        onModelLoaded(null)
+      if (onModelLoadedRef.current) {
+        onModelLoadedRef.current(null)
       }
     } finally {
       setIsLoading(false)
     }
-  }, [buildDimensionsMap, highlightColor, onModelLoaded, onElementPicked])
+  }, [buildDimensionsMap, highlightColor])
 
   // Handle file input
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {

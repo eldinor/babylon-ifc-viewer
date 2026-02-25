@@ -10,6 +10,7 @@ interface SidebarProps {
   activeTab: TabType;
   projectInfo: ProjectInfoResult | null;
   projectTreeIndex: IfcProjectTreeIndex | null;
+  lengthUnitSymbol: string;
   selectedProjectExpressID: number | null;
   isVisibilityFiltered: boolean;
   visibleCount: number | null;
@@ -24,6 +25,7 @@ function Sidebar({
   activeTab,
   projectInfo,
   projectTreeIndex,
+  lengthUnitSymbol,
   selectedProjectExpressID,
   isVisibilityFiltered,
   visibleCount,
@@ -58,6 +60,7 @@ function Sidebar({
             key={projectTreeIndex ? `project-tree-${projectTreeIndex.nodes.size}-${projectTreeIndex.roots.join("-")}` : "project-tree-empty"}
             treeIndex={projectTreeIndex}
             selectedExpressID={selectedProjectExpressID}
+            lengthUnitSymbol={lengthUnitSymbol}
             onSelectNode={onSelectProjectNode}
           />
         )}

@@ -19,12 +19,14 @@ interface ElementDimensions {
   length?: number;
   width?: number;
   height?: number;
+  elevation?: number;
 }
 
 export interface ElementDimensionsFallback {
   length: number;
   width: number;
   height: number;
+  elevation?: number;
 }
 
 interface DimensionFieldOptions {
@@ -35,6 +37,7 @@ const DIRECT_DIMENSION_KEYS: Record<keyof ElementDimensions, string[]> = {
   length: ["OverallLength", "Length", "XDim"],
   width: ["OverallWidth", "Width", "YDim"],
   height: ["OverallHeight", "Height", "ZDim", "Depth"],
+  elevation: ["Elevation"],
 };
 
 const VALUE_KEYS = ["LengthValue", "NominalValue", "value", "wrappedValue", "ValueComponent"];
@@ -79,6 +82,7 @@ function inferDimensionKey(name: string): keyof ElementDimensions | null {
   const lowered = name.toLowerCase();
   if (lowered.includes("length") || lowered.includes("xdim")) return "length";
   if (lowered.includes("width") || lowered.includes("ydim")) return "width";
+  if (lowered.includes("elevation")) return "elevation";
   if (lowered.includes("height") || lowered.includes("depth") || lowered.includes("zdim")) return "height";
   return null;
 }
@@ -129,7 +133,25 @@ function extractIfcDimensions(line: IfcLineLike): ElementDimensions {
   };
 
   visit(line);
+  if (dimensions.elevation === undefined) {
+    const placementElevation = extractPlacementElevation(line);
+    if (placementElevation !== null) {
+      dimensions.elevation = placementElevation;
+    }
+  }
   return dimensions;
+}
+
+function extractPlacementElevation(line: IfcLineLike): number | null {
+  const placement = line.ObjectPlacement as Record<string, unknown> | undefined;
+  if (!placement || typeof placement !== "object") return null;
+  const relativePlacement = placement.RelativePlacement as Record<string, unknown> | undefined;
+  if (!relativePlacement || typeof relativePlacement !== "object") return null;
+  const location = relativePlacement.Location as Record<string, unknown> | undefined;
+  if (!location || typeof location !== "object") return null;
+  const coords = location.Coordinates;
+  if (!Array.isArray(coords) || coords.length < 3) return null;
+  return extractNumber(coords[2]);
 }
 
 function getMeshBoundingDimensions(data: ElementPickData): ElementDimensions | null {
@@ -137,12 +159,13 @@ function getMeshBoundingDimensions(data: ElementPickData): ElementDimensions | n
   if (!boundingInfo) return null;
 
   const ext = boundingInfo.boundingBox.extendSizeWorld;
+  const center = boundingInfo.boundingBox.centerWorld;
   const x = ext.x * 2;
   const y = ext.y * 2;
   const z = ext.z * 2;
 
-  if (![x, y, z].every(Number.isFinite)) return null;
-  return { length: x, width: y, height: z };
+  if (![x, y, z, center.y].every(Number.isFinite)) return null;
+  return { length: x, width: y, height: z, elevation: center.y };
 }
 
 function addDimensionFields(
@@ -154,7 +177,8 @@ function addDimensionFields(
   const hasSemantic =
     semanticDimensions.length !== undefined ||
     semanticDimensions.width !== undefined ||
-    semanticDimensions.height !== undefined;
+    semanticDimensions.height !== undefined ||
+    semanticDimensions.elevation !== undefined;
   const source = hasSemantic ? semanticDimensions : fallbackDimensions ?? {};
   const suffix = hasSemantic ? "" : " (bbox)";
 
@@ -172,6 +196,11 @@ function addDimensionFields(
     fields,
     `Height${suffix}`,
     source.height !== undefined ? formatDimension(source.height, options?.unitSymbol) : "-",
+  );
+  addField(
+    fields,
+    `Elevation${suffix}`,
+    source.elevation !== undefined ? formatDimension(source.elevation, options?.unitSymbol) : "-",
   );
 }
 

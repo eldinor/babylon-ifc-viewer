@@ -151,15 +151,35 @@ function App() {
       setElementInfo(null);
       return;
     }
-    setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
+    if (!modelData || !projectTreeIndex) {
+      setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
+      return;
+    }
+
     const treeIndex = projectTreeIndexRef.current;
     if (!treeIndex) return;
 
     if (treeIndex.nodes.has(data.expressID)) {
       setSelectedProjectExpressID(data.expressID);
-      return;
+      const node = projectTreeIndex.nodes.get(data.expressID);
+      if (node) {
+        const fallbackDimensions = modelData.dimensionsByExpressID.get(node.expressID);
+        setElementInfo(
+          buildElementInfoFromProjectNode(
+            modelData.ifcAPI,
+            modelData.modelID,
+            node,
+            projectTreeIndex,
+            fallbackDimensions,
+            { unitSymbol: modelData.lengthUnitSymbol },
+          ),
+        );
+        return;
+      }
     }
-  }, [modelData?.lengthUnitSymbol]);
+
+    setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData.lengthUnitSymbol }));
+  }, [modelData, projectTreeIndex]);
 
   useLayoutEffect(() => {
     localStorage.setItem(STORAGE_KEYS.sceneBackgroundColor, sceneBackgroundColor);
@@ -196,6 +216,7 @@ function App() {
           activeTab={activeTab}
           projectInfo={projectInfo}
           projectTreeIndex={projectTreeIndex}
+          lengthUnitSymbol={modelData?.lengthUnitSymbol ?? "m"}
           selectedProjectExpressID={selectedProjectExpressID}
           isVisibilityFiltered={visibleExpressIDs !== null}
           visibleCount={visibleExpressIDs?.size ?? null}

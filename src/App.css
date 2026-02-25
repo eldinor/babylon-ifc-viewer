@@ -231,6 +231,13 @@
   color: #4fc3f7;
 }
 
+.tab-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .storey-empty {
   padding: 16px;
   text-align: center;
@@ -266,18 +273,19 @@
 
 .project-tree {
   font-size: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .project-tree-controls {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 8px;
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  margin-top: 8px;
   background-color: #16213e;
-  padding-bottom: 8px;
+  padding-top: 8px;
+  flex-shrink: 0;
 }
 
 .tree-search-input {
@@ -364,6 +372,18 @@
 
 .tree-name {
   color: white;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-elevation {
+  margin-left: auto;
+  color: #8dc8ef;
+  font-size: 11px;
+  white-space: nowrap;
+  padding-left: 8px;
 }
 
 .tree-children {

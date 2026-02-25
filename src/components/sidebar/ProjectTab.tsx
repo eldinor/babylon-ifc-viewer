@@ -24,6 +24,7 @@ function ProjectTab({
   const [searchQuery, setSearchQuery] = useState("");
   const [matchIndex, setMatchIndex] = useState(0);
   const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const treeContainerRef = useRef<HTMLDivElement>(null);
 
   const effectiveExpandedIds = useMemo(() => {
     if (!treeIndex || selectedExpressID === null) return expandedIds;
@@ -206,7 +207,9 @@ function ProjectTab({
   if (!treeIndex || treeIndex.roots.length === 0) {
     return (
       <div className="tab-panel">
-        <h3>Project Tree</h3>
+        <div className="tab-title-row">
+          <h3>Project Tree</h3>
+        </div>
         <div className="project-tree">
           <div className="storey-empty">No IFC model loaded. Click "Open IFC" to load a file.</div>
         </div>
@@ -216,8 +219,18 @@ function ProjectTab({
 
   return (
     <div className="tab-panel">
-      <h3>Project Tree</h3>
-      <div className="project-tree" tabIndex={0} onKeyDown={handleKeyDown}>
+      <div className="tab-title-row">
+        <h3>Project Tree</h3>
+        <button
+          type="button"
+          className="tree-to-top-btn"
+          title="Scroll to top"
+          onClick={() => treeContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+        >
+          ^
+        </button>
+      </div>
+      <div className="project-tree" tabIndex={0} onKeyDown={handleKeyDown} ref={treeContainerRef}>
         {visibleNodes.map(({ expressID, depth }) => {
           const node = treeIndex.nodes.get(expressID);
           if (!node) return null;

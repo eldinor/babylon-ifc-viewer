@@ -231,6 +231,37 @@
   color: #4fc3f7;
 }
 
+.tab-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.tab-title-row h3 {
+  margin: 0;
+}
+
+.tree-to-top-btn {
+  width: 22px;
+  height: 22px;
+  border: 1px solid #1a1a2e;
+  border-radius: 4px;
+  background-color: #0f3460;
+  color: #cfe6ff;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.tree-to-top-btn:hover {
+  background-color: #1a1a2e;
+  color: #fff;
+}
+
 .tab-panel {
   height: 100%;
   display: flex;

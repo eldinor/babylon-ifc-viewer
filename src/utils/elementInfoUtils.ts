@@ -15,6 +15,30 @@ interface IfcLineLike {
   [key: string]: unknown;
 }
 
+interface ElementDimensions {
+  length?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface ElementDimensionsFallback {
+  length: number;
+  width: number;
+  height: number;
+}
+
+interface DimensionFieldOptions {
+  unitSymbol?: string;
+}
+
+const DIRECT_DIMENSION_KEYS: Record<keyof ElementDimensions, string[]> = {
+  length: ["OverallLength", "Length", "XDim"],
+  width: ["OverallWidth", "Width", "YDim"],
+  height: ["OverallHeight", "Height", "ZDim", "Depth"],
+};
+
+const VALUE_KEYS = ["LengthValue", "NominalValue", "value", "wrappedValue", "ValueComponent"];
+
 function safeValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === "string") return value;
@@ -24,6 +48,131 @@ function safeValue(value: unknown): string | null {
     return nested !== undefined && nested !== null ? String(nested) : null;
   }
   return null;
+}
+
+function extractNumber(value: unknown, depth = 0): number | null {
+  if (depth > 3) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (!value || typeof value !== "object") return null;
+
+  const wrapped = value as Record<string, unknown>;
+  for (const key of VALUE_KEYS) {
+    if (key in wrapped) {
+      const nested = extractNumber(wrapped[key], depth + 1);
+      if (nested !== null) return nested;
+    }
+  }
+  return null;
+}
+
+function formatDimension(value: number, unitSymbol?: string): string {
+  const rounded = Math.round(value * 1000) / 1000;
+  const raw = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(3).replace(/\.?0+$/, "");
+  return unitSymbol ? `${raw} ${unitSymbol}` : raw;
+}
+
+function inferDimensionKey(name: string): keyof ElementDimensions | null {
+  const lowered = name.toLowerCase();
+  if (lowered.includes("length") || lowered.includes("xdim")) return "length";
+  if (lowered.includes("width") || lowered.includes("ydim")) return "width";
+  if (lowered.includes("height") || lowered.includes("depth") || lowered.includes("zdim")) return "height";
+  return null;
+}
+
+function extractIfcDimensions(line: IfcLineLike): ElementDimensions {
+  const dimensions: ElementDimensions = {};
+
+  // Fast path for direct IFC dimension fields (e.g. OverallWidth/OverallHeight).
+  (Object.keys(DIRECT_DIMENSION_KEYS) as Array<keyof ElementDimensions>).forEach((dimensionKey) => {
+    for (const key of DIRECT_DIMENSION_KEYS[dimensionKey]) {
+      const numeric = extractNumber((line as Record<string, unknown>)[key]);
+      if (numeric !== null) {
+        dimensions[dimensionKey] = numeric;
+        break;
+      }
+    }
+  });
+
+  const seen = new WeakSet<object>();
+  let visitedNodes = 0;
+  const maxVisitedNodes = 2000;
+
+  const visit = (value: unknown): void => {
+    if (!value || typeof value !== "object") return;
+    if (visitedNodes >= maxVisitedNodes) return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    visitedNodes += 1;
+
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+
+    const candidate = value as Record<string, unknown>;
+    const name = safeValue(candidate.Name) ?? "";
+    if (name) {
+      const dimensionKey = inferDimensionKey(name);
+      if (dimensionKey && dimensions[dimensionKey] === undefined) {
+        const numeric = extractNumber(candidate.LengthValue) ?? extractNumber(candidate.NominalValue);
+        if (numeric !== null) {
+          dimensions[dimensionKey] = numeric;
+        }
+      }
+    }
+
+    Object.values(candidate).forEach(visit);
+  };
+
+  visit(line);
+  return dimensions;
+}
+
+function getMeshBoundingDimensions(data: ElementPickData): ElementDimensions | null {
+  const boundingInfo = data.mesh.getBoundingInfo();
+  if (!boundingInfo) return null;
+
+  const ext = boundingInfo.boundingBox.extendSizeWorld;
+  const x = ext.x * 2;
+  const y = ext.y * 2;
+  const z = ext.z * 2;
+
+  if (![x, y, z].every(Number.isFinite)) return null;
+  return { length: x, width: y, height: z };
+}
+
+function addDimensionFields(
+  fields: ElementInfoField[],
+  semanticDimensions: ElementDimensions,
+  fallbackDimensions?: ElementDimensions | null,
+  options?: DimensionFieldOptions,
+): void {
+  const hasSemantic =
+    semanticDimensions.length !== undefined ||
+    semanticDimensions.width !== undefined ||
+    semanticDimensions.height !== undefined;
+  const source = hasSemantic ? semanticDimensions : fallbackDimensions ?? {};
+  const suffix = hasSemantic ? "" : " (bbox)";
+
+  addField(
+    fields,
+    `Length${suffix}`,
+    source.length !== undefined ? formatDimension(source.length, options?.unitSymbol) : "-",
+  );
+  addField(
+    fields,
+    `Width${suffix}`,
+    source.width !== undefined ? formatDimension(source.width, options?.unitSymbol) : "-",
+  );
+  addField(
+    fields,
+    `Height${suffix}`,
+    source.height !== undefined ? formatDimension(source.height, options?.unitSymbol) : "-",
+  );
 }
 
 function addField(fields: ElementInfoField[], label: string, value: unknown): void {
@@ -44,8 +193,10 @@ function getSpatialContainerLabel(expressID: number, index: IfcProjectTreeIndex)
   return "-";
 }
 
-export function buildElementInfoFromPick(data: ElementPickData): ElementInfoData {
+export function buildElementInfoFromPick(data: ElementPickData, options?: DimensionFieldOptions): ElementInfoData {
   const line = (data.element ?? {}) as IfcLineLike;
+  const semanticDimensions = extractIfcDimensions(line);
+  const bboxDimensions = getMeshBoundingDimensions(data);
   const fields: ElementInfoField[] = [];
 
   addField(fields, "Name", data.elementName);
@@ -57,6 +208,7 @@ export function buildElementInfoFromPick(data: ElementPickData): ElementInfoData
   addField(fields, "ObjectType", line.ObjectType?.value);
   addField(fields, "Tag", line.Tag?.value);
   addField(fields, "PredefinedType", line.PredefinedType);
+  addDimensionFields(fields, semanticDimensions, bboxDimensions, options);
 
   return {
     source: "scene",
@@ -70,8 +222,11 @@ export function buildElementInfoFromProjectNode(
   modelID: number,
   node: IfcProjectTreeNode,
   index: IfcProjectTreeIndex,
+  fallbackDimensions?: ElementDimensionsFallback,
+  options?: DimensionFieldOptions,
 ): ElementInfoData {
   const line = (ifcAPI.GetLine(modelID, node.expressID, true) ?? {}) as IfcLineLike;
+  const dimensions = extractIfcDimensions(line);
   const typeName =
     typeof line.type === "number" ? ifcAPI.GetNameFromTypeCode(line.type) : node.typeName || "Unknown";
   const parentID = index.parentByExpressID.get(node.expressID);
@@ -94,6 +249,7 @@ export function buildElementInfoFromProjectNode(
   addField(fields, "ObjectType", line.ObjectType?.value);
   addField(fields, "Tag", line.Tag?.value);
   addField(fields, "PredefinedType", line.PredefinedType);
+  addDimensionFields(fields, dimensions, fallbackDimensions, options);
   addField(fields, "Contained Elements Count", containedElementsCount);
   addField(fields, "Storey/Spatial Container", getSpatialContainerLabel(node.expressID, index));
 

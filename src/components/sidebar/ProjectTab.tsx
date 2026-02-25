@@ -12,9 +12,15 @@ interface VisibleNode {
   depth: number;
 }
 
-function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabProps) {
+function ProjectTab({
+  treeIndex,
+  selectedExpressID,
+  onSelectNode,
+}: ProjectTabProps) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set(treeIndex?.roots ?? []));
   const [activeExpressID, setActiveExpressID] = useState<number | null>(() => treeIndex?.roots[0] ?? null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
   const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const effectiveExpandedIds = useMemo(() => {
@@ -46,6 +52,33 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
     return list;
   }, [effectiveExpandedIds, treeIndex]);
 
+  const allNodesInTreeOrder = useMemo(() => {
+    if (!treeIndex) return [] as number[];
+    const list: number[] = [];
+    const walk = (expressID: number) => {
+      list.push(expressID);
+      const node = treeIndex.nodes.get(expressID);
+      if (!node) return;
+      node.childExpressIDs.forEach(walk);
+    };
+    treeIndex.roots.forEach(walk);
+    return list;
+  }, [treeIndex]);
+
+  const matchedExpressIDs = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query || !treeIndex) return [] as number[];
+    return allNodesInTreeOrder.filter((expressID) => {
+      const node = treeIndex.nodes.get(expressID);
+      if (!node) return false;
+      return (
+        node.name.toLowerCase().includes(query) ||
+        node.typeName.toLowerCase().includes(query) ||
+        String(node.expressID).includes(query)
+      );
+    });
+  }, [allNodesInTreeOrder, searchQuery, treeIndex]);
+
   const activeIndex = useMemo(
     () => visibleNodes.findIndex((item) => item.expressID === effectiveActiveExpressID),
     [effectiveActiveExpressID, visibleNodes],
@@ -57,6 +90,19 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
     if (!row) return;
     row.scrollIntoView({ block: "nearest" });
   }, [selectedExpressID, visibleNodes.length]);
+
+  const ensureAncestorsExpanded = (expressID: number) => {
+    if (!treeIndex) return;
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      let current = treeIndex.parentByExpressID.get(expressID);
+      while (current !== undefined) {
+        next.add(current);
+        current = treeIndex.parentByExpressID.get(current);
+      }
+      return next;
+    });
+  };
 
   const toggleExpand = (expressID: number) => {
     setExpandedIds((prev) => {
@@ -77,6 +123,17 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
     }
     const node = treeIndex.nodes.get(expressID) ?? null;
     onSelectNode(node);
+  };
+
+  const jumpToMatch = (direction: 1 | -1) => {
+    if (!treeIndex || matchedExpressIDs.length === 0) return;
+    const nextIndex = (matchIndex + direction + matchedExpressIDs.length) % matchedExpressIDs.length;
+    const targetExpressID = matchedExpressIDs[nextIndex];
+    ensureAncestorsExpanded(targetExpressID);
+    setMatchIndex(nextIndex);
+    setActiveExpressID(targetExpressID);
+    const node = treeIndex.nodes.get(targetExpressID);
+    if (node) onSelectNode(node);
   };
 
   const handleNodeClick = (expressID: number) => {
@@ -152,6 +209,42 @@ function ProjectTab({ treeIndex, selectedExpressID, onSelectNode }: ProjectTabPr
   return (
     <div className="tab-panel">
       <h3>Project Tree</h3>
+      <div className="project-tree-controls">
+        <input
+          className="tree-search-input"
+          type="text"
+          value={searchQuery}
+          onChange={(event) => {
+            setSearchQuery(event.target.value);
+            setMatchIndex(0);
+          }}
+          placeholder="Search name, type, or Express ID"
+          aria-label="Search project tree"
+        />
+        <div className="tree-search-actions">
+          <button
+            type="button"
+            className="tree-search-btn"
+            onClick={() => jumpToMatch(-1)}
+            disabled={matchedExpressIDs.length === 0}
+            title="Previous match"
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            className="tree-search-btn"
+            onClick={() => jumpToMatch(1)}
+            disabled={matchedExpressIDs.length === 0}
+            title="Next match"
+          >
+            Next
+          </button>
+          <span className="tree-search-count">
+            {matchedExpressIDs.length > 0 ? `${matchIndex + 1}/${matchedExpressIDs.length}` : "0/0"}
+          </span>
+        </div>
+      </div>
       <div className="project-tree" tabIndex={0} onKeyDown={handleKeyDown}>
         {visibleNodes.map(({ expressID, depth }) => {
           const node = treeIndex.nodes.get(expressID);

@@ -11,9 +11,12 @@ interface SidebarProps {
   projectInfo: ProjectInfoResult | null;
   projectTreeIndex: IfcProjectTreeIndex | null;
   selectedProjectExpressID: number | null;
+  isVisibilityFiltered: boolean;
+  visibleCount: number | null;
   onToggleSidebar: () => void;
   onSetTab: (tab: TabType) => void;
   onSelectProjectNode: (node: IfcProjectTreeNode | null) => void;
+  onResetVisibility: () => void;
 }
 
 function Sidebar({
@@ -22,9 +25,12 @@ function Sidebar({
   projectInfo,
   projectTreeIndex,
   selectedProjectExpressID,
+  isVisibilityFiltered,
+  visibleCount,
   onToggleSidebar,
   onSetTab,
   onSelectProjectNode,
+  onResetVisibility,
 }: SidebarProps) {
   return (
     <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
@@ -58,7 +64,24 @@ function Sidebar({
         {activeTab === "info" && <InfoTab projectInfo={projectInfo} />}
       </div>
 
-      <div className="sidebar-footer">Footer</div>
+      <div className="sidebar-footer">
+        {activeTab === "project" ? (
+          <div className={`sidebar-visibility ${isVisibilityFiltered ? "filtered" : "all-visible"}`}>
+            <span className="sidebar-visibility-text">
+              {isVisibilityFiltered
+                ? `Subtree visible${visibleCount ? ` (${visibleCount})` : ""}`
+                : "All visible"}
+            </span>
+            {isVisibilityFiltered && (
+              <button type="button" className="sidebar-visibility-reset" onClick={onResetVisibility}>
+                Show All
+              </button>
+            )}
+          </div>
+        ) : (
+          "Footer"
+        )}
+      </div>
     </aside>
   );
 }

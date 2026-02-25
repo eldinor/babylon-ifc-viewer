@@ -18,7 +18,8 @@ import {
 } from "babylon-ifc-loader";
 import type { RawIfcModel, ProjectInfoResult } from "babylon-ifc-loader";
 import * as WebIFC from "web-ifc";
-import { setupPickingHandler, type ElementPickData } from "../utils/pickingUtils";
+import { setupPickingHandler, type ElementPickData, type PickingManager } from "../utils/pickingUtils";
+import { getIfcLengthUnitInfo } from "../utils/ifcUnits";
 
 /**
  * Data passed to parent when an IFC model is loaded
@@ -28,6 +29,8 @@ export interface IfcModelData {
   modelID: number;
   ifcGlobalId: string; // GlobalId from IFC file
   ifcAPI: WebIFC.IfcAPI;
+  dimensionsByExpressID: Map<number, { length: number; width: number; height: number }>;
+  lengthUnitSymbol: string;
 }
 
 interface BabylonSceneProps {
@@ -48,9 +51,29 @@ function BabylonScene({
   const sceneRef = useRef<Scene | null>(null);
   const ifcAPIRef = useRef<WebIFC.IfcAPI | null>(null);
   const modelRef = useRef<RawIfcModel | null>(null);
+  const pickingManagerRef = useRef<PickingManager | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 const [error, setError] = useState<string | null>(null);
 const [ifcReady, setIfcReady] = useState(false);
+
+  const buildDimensionsMap = useCallback((meshes: Scene["meshes"]) => {
+    const map = new Map<number, { length: number; width: number; height: number }>();
+    meshes.forEach((mesh) => {
+      const metadata = mesh.metadata as { expressID?: unknown } | null;
+      const expressID = typeof metadata?.expressID === "number" ? metadata.expressID : null;
+      if (expressID === null || map.has(expressID)) return;
+      const boundingInfo = mesh.getBoundingInfo();
+      if (!boundingInfo) return;
+      const ext = boundingInfo.boundingBox.extendSizeWorld;
+      const length = ext.x * 2;
+      const width = ext.y * 2;
+      const height = ext.z * 2;
+      if ([length, width, height].every(Number.isFinite)) {
+        map.set(expressID, { length, width, height });
+      }
+    });
+    return map;
+  }, []);
 
 // Effect to show/hide meshes based on project tree subtree selection
   useEffect(() => {
@@ -158,6 +181,11 @@ const [ifcReady, setIfcReady] = useState(false);
       if (sceneRef.current) {
         disposeIfcModel(sceneRef.current)
       }
+
+      if (pickingManagerRef.current) {
+        pickingManagerRef.current.dispose()
+        pickingManagerRef.current = null
+      }
       
       // Close IFC model
       if (ifcAPIRef.current && modelRef.current) {
@@ -194,6 +222,11 @@ const [ifcReady, setIfcReady] = useState(false);
       if (modelRef.current && ifcAPIRef.current) {
         closeIfcModel(ifcAPIRef.current, modelRef.current.modelID)
         modelRef.current = null
+      }
+
+      if (pickingManagerRef.current) {
+        pickingManagerRef.current.dispose()
+        pickingManagerRef.current = null
       }
 
       // Load IFC model
@@ -245,17 +278,21 @@ const [ifcReady, setIfcReady] = useState(false);
 
 // Notify parent component with full model data
       if (onModelLoaded && ifcAPIRef.current) {
+        const dimensionsByExpressID = buildDimensionsMap(meshes);
+        const lengthUnit = getIfcLengthUnitInfo(ifcAPIRef.current, model.modelID);
         onModelLoaded({
           projectInfo,
           modelID: model.modelID,
           ifcGlobalId,
           ifcAPI: ifcAPIRef.current,
+          dimensionsByExpressID,
+          lengthUnitSymbol: lengthUnit.symbol,
         })
       }
 
       // Setup picking handler
       if (ifcAPIRef.current && sceneRef.current) {
-        setupPickingHandler(sceneRef.current, ifcAPIRef.current, {
+        pickingManagerRef.current = setupPickingHandler(sceneRef.current, ifcAPIRef.current, {
           onElementPicked: (data) => {
             if (onElementPicked) {
               onElementPicked(data);
@@ -276,7 +313,7 @@ const [ifcReady, setIfcReady] = useState(false);
     } finally {
       setIsLoading(false)
     }
-  }, [onModelLoaded, onElementPicked])
+  }, [buildDimensionsMap, onModelLoaded, onElementPicked])
 
   // Handle file input
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {

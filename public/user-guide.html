@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Babylon IFC Viewer - User Guide</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #1f2937;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --accent: #0a66c2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Roboto, Arial, sans-serif;
+        color: var(--text);
+        background: var(--bg);
+        line-height: 1.5;
+      }
+
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 24px 16px 40px;
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px 18px;
+        margin-bottom: 12px;
+      }
+
+      h1,
+      h2 {
+        margin: 0 0 10px;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+
+      h2 {
+        font-size: 18px;
+      }
+
+      p {
+        margin: 0 0 8px;
+      }
+
+      ul,
+      ol {
+        margin: 0;
+        padding-left: 20px;
+      }
+
+      code {
+        background: #f3f4f6;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        padding: 1px 5px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      a {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <section class="card">
+        <h1>Babylon IFC Viewer User Guide</h1>
+        <p class="muted">
+          This guide explains the main workflows: loading a model, navigating the IFC tree, selecting elements,
+          and copying element data.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>1. Load an IFC Model</h2>
+        <ol>
+          <li>Click <strong>Open IFC</strong> in the top header.</li>
+          <li>Select a <code>.ifc</code> file from your computer.</li>
+          <li>Wait for parsing and scene creation to complete.</li>
+        </ol>
+        <p class="muted">Loading a new model resets current selection and closes Element Info.</p>
+      </section>
+
+      <section class="card">
+        <h2>2. Use the Project Tree</h2>
+        <ul>
+          <li>Expand/collapse nodes with the arrow control.</li>
+          <li>Click a node to select it and isolate visibility for its full subtree in the scene.</li>
+          <li>Keyboard: <code>ArrowRight</code> expand, <code>ArrowLeft</code> collapse, <code>Enter</code>/<code>Space</code> select.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>3. Pick Elements in the 3D View</h2>
+        <ul>
+          <li>Click a mesh in the canvas to pick its IFC element.</li>
+          <li>Project Tree syncs to the picked element and scrolls it into view when needed.</li>
+          <li>Element Info panel updates with the selected element data.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>4. Element Info Panel</h2>
+        <ul>
+          <li>Shows key fields such as name/type/IDs for the current element.</li>
+          <li>Each field with a value has its own copy icon.</li>
+          <li><strong>Copy All</strong> supports three formats: <code>Text</code>, <code>JSON</code>, <code>Markdown table</code>.</li>
+          <li>Panel closes using the close icon (or when a new model is loaded).</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>5. Tips and Troubleshooting</h2>
+        <ul>
+          <li>If picking does not return data, verify the loaded file contains IFC geometry and metadata.</li>
+          <li>If performance drops on huge models, expand only relevant tree branches.</li>
+          <li>Use subtree selection in Project Tree to focus on one part of the project.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Shortcuts Summary</h2>
+        <ul>
+          <li><code>ArrowRight</code>: Expand focused tree node</li>
+          <li><code>ArrowLeft</code>: Collapse focused tree node</li>
+          <li><code>Enter</code> / <code>Space</code>: Select focused tree node</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

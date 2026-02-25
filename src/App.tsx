@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import "./App.css";
 import BabylonScene, { type IfcModelData } from "./components/BabylonScene";
@@ -29,12 +29,29 @@ function App() {
     handleModelCleared,
   );
 
+  const breadcrumbs = useMemo(() => {
+    if (!projectTreeIndex || selectedProjectExpressID === null) return [] as Array<{ expressID: number; name: string }>;
+    const chain: Array<{ expressID: number; name: string }> = [];
+    let currentID: number | undefined = selectedProjectExpressID;
+    while (currentID !== undefined) {
+      const node = projectTreeIndex.nodes.get(currentID);
+      if (!node) break;
+      chain.unshift({ expressID: node.expressID, name: node.name });
+      currentID = projectTreeIndex.parentByExpressID.get(currentID);
+    }
+    return chain;
+  }, [projectTreeIndex, selectedProjectExpressID]);
+
   useLayoutEffect(() => {
     projectTreeIndexRef.current = projectTreeIndex;
   }, [projectTreeIndex]);
 
   const handleOpenIfc = useCallback(() => {
     fileInputRef.current?.click();
+  }, []);
+
+  const handleOpenHelp = useCallback(() => {
+    window.open("/user-guide.html", "_blank", "noopener,noreferrer");
   }, []);
 
   const handleFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
@@ -62,6 +79,10 @@ function App() {
     setElementInfo((prev) => (prev?.source === "projectTree" ? null : prev));
   }, []);
 
+  const handleResetVisibility = useCallback(() => {
+    setVisibleExpressIDs(null);
+  }, []);
+
   const handleSelectProjectNode = useCallback((node: IfcProjectTreeNode | null) => {
     if (!node) {
       clearProjectTreeSelection();
@@ -73,16 +94,34 @@ function App() {
     setSelectedProjectExpressID(node.expressID);
     setVisibleExpressIDs(new Set(subtreeIDs));
     if (modelData) {
-      setElementInfo(buildElementInfoFromProjectNode(modelData.ifcAPI, modelData.modelID, node, projectTreeIndex));
+      const fallbackDimensions = modelData.dimensionsByExpressID.get(node.expressID);
+      setElementInfo(
+        buildElementInfoFromProjectNode(
+          modelData.ifcAPI,
+          modelData.modelID,
+          node,
+          projectTreeIndex,
+          fallbackDimensions,
+          { unitSymbol: modelData.lengthUnitSymbol },
+        ),
+      );
     }
   }, [clearProjectTreeSelection, modelData, projectTreeIndex]);
+
+  const handleBreadcrumbClick = useCallback((expressID: number) => {
+    if (!projectTreeIndex) return;
+    const node = projectTreeIndex.nodes.get(expressID);
+    if (!node) return;
+    setActiveTab("project");
+    handleSelectProjectNode(node);
+  }, [handleSelectProjectNode, projectTreeIndex]);
 
   const handleElementPicked = useCallback((data: ElementPickData | null) => {
     if (!data) {
       setElementInfo(null);
       return;
     }
-    setElementInfo(buildElementInfoFromPick(data));
+    setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
     const treeIndex = projectTreeIndexRef.current;
     if (!treeIndex) return;
 
@@ -90,11 +129,18 @@ function App() {
       setSelectedProjectExpressID(data.expressID);
       return;
     }
-  }, []);
+  }, [modelData?.lengthUnitSymbol]);
 
   return (
     <div className="app">
-      <AppHeader fileInputRef={fileInputRef} onOpenIfc={handleOpenIfc} onFileChange={handleFileChange} />
+      <AppHeader
+        fileInputRef={fileInputRef}
+        onOpenIfc={handleOpenIfc}
+        onFileChange={handleFileChange}
+        onOpenHelp={handleOpenHelp}
+        breadcrumbs={breadcrumbs}
+        onBreadcrumbClick={handleBreadcrumbClick}
+      />
 
       <ElementInfoPanel elementInfo={elementInfo} onClose={() => setElementInfo(null)} />
 
@@ -105,9 +151,12 @@ function App() {
           projectInfo={projectInfo}
           projectTreeIndex={projectTreeIndex}
           selectedProjectExpressID={selectedProjectExpressID}
+          isVisibilityFiltered={visibleExpressIDs !== null}
+          visibleCount={visibleExpressIDs?.size ?? null}
           onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
           onSetTab={setActiveTab}
           onSelectProjectNode={handleSelectProjectNode}
+          onResetVisibility={handleResetVisibility}
         />
 
         <main className="canvas-container">

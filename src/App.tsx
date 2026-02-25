@@ -1,10 +1,11 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import "./App.css";
 import BabylonScene, { type IfcModelData } from "./components/BabylonScene";
 import AppHeader from "./components/AppHeader";
 import ElementInfoPanel from "./components/ElementInfoPanel";
 import Sidebar from "./components/Sidebar";
+import KeyboardShortcuts from "./components/KeyboardShortcuts";
 import { useModelData } from "./hooks/useModelData";
 import type { ElementPickData } from "./utils/pickingUtils";
 import type { PickMode, SectionAxis, TabType } from "./types/app";
@@ -94,6 +95,7 @@ function App() {
     const stored = localStorage.getItem(STORAGE_KEYS.highlightColor);
     return isHexColor(stored) ? stored : DEFAULT_HIGHLIGHT;
   });
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const handleModelCleared = useCallback(() => {
     setElementInfo(null);
@@ -407,6 +409,66 @@ function App() {
     sessionStorage.setItem(SESSION_KEYS.sectionPercent, String(sectionPercent));
   }, [sectionPercent]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const isTypingTarget =
+        tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable === true;
+      const isQuestionMark = event.key === "?" || (event.code === "Slash" && event.shiftKey);
+
+      if (event.key === "Escape" && shortcutsOpen) {
+        event.preventDefault();
+        setShortcutsOpen(false);
+        return;
+      }
+
+      if (isQuestionMark && !isTypingTarget) {
+        event.preventDefault();
+        setShortcutsOpen((prev) => !prev);
+        return;
+      }
+
+      if (isTypingTarget) return;
+
+      if (!event.ctrlKey && !event.altKey && !event.metaKey && !event.repeat && event.code === "KeyR") {
+        event.preventDefault();
+        handleRestoreView();
+        return;
+      }
+
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.repeat) return;
+
+      if (event.code === "KeyS") {
+        event.preventDefault();
+        handlePickModeChange("select");
+        return;
+      }
+      if (event.code === "KeyI") {
+        event.preventDefault();
+        handlePickModeChange("isolate");
+        return;
+      }
+      if (event.code === "KeyM") {
+        event.preventDefault();
+        handlePickModeChange("measure");
+        return;
+      }
+      if (event.code === "KeyN") {
+        event.preventDefault();
+        handlePickModeChange("inspect");
+        return;
+      }
+      if (event.code === "KeyC") {
+        event.preventDefault();
+        setSectionEnabled((prev) => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handlePickModeChange, handleRestoreView, shortcutsOpen]);
+
   return (
     <div className="app">
       <AppHeader
@@ -443,6 +505,7 @@ function App() {
         onClose={() => setElementInfo(null)}
         sidebarCollapsed={sidebarCollapsed}
       />
+      <KeyboardShortcuts isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
       <div className="main-container">
         <Sidebar
@@ -480,14 +543,23 @@ function App() {
       </div>
 
       <footer className="footer">
-        {footerFileInfo ? (
-          <>
-            <span>{footerFileInfo.name}</span>
-            <span className="footer-file-size">{footerFileInfo.sizeMb}</span>
-          </>
-        ) : (
-          "No model loaded"
-        )}
+        <div className="footer-file-info">
+          {footerFileInfo ? (
+            <>
+              <span>{footerFileInfo.name}</span>
+              <span className="footer-file-size">{footerFileInfo.sizeMb}</span>
+            </>
+          ) : (
+            "No model loaded"
+          )}
+        </div>
+        <button
+          type="button"
+          className={`footer-shortcuts-link ${sidebarCollapsed ? "sidebar-collapsed" : "sidebar-open"}`}
+          onClick={() => setShortcutsOpen(true)}
+        >
+          Keyboard Shortcuts: Shift+?
+        </button>
       </footer>
     </div>
   );

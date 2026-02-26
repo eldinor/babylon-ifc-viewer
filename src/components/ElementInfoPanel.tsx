@@ -44,11 +44,14 @@ function ElementInfoPanel({ elementInfo, onClose, sidebarCollapsed }: ElementInf
   };
 
   const buildCopyAllPayload = (): string => {
+    const currentInfo = elementInfo;
+    if (!currentInfo) return "";
+
     if (copyAllFormat === "json") {
       return JSON.stringify(
         {
-          source: elementInfo.source,
-          expressID: elementInfo.expressID,
+          source: currentInfo.source,
+          expressID: currentInfo.expressID,
           fields: meaningfulFields.map((field) => ({
             label: field.label,
             value: field.value,

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IfcProjectTreeIndex, IfcProjectTreeNode } from "../../utils/projectTreeUtils";
-import { AlwaysFitIcon, FitViewIcon, RestoreViewIcon } from "../Icons";
+import { AlwaysFitIcon, EyeClosedIcon, EyeOpenIcon, FitViewIcon, RestoreViewIcon } from "../Icons";
 
 interface ProjectTabProps {
   treeIndex: IfcProjectTreeIndex | null;
   selectedExpressID: number | null;
+  hiddenExpressIDs: Set<number>;
   lengthUnitSymbol: string;
   onSelectNode: (node: IfcProjectTreeNode | null) => void;
+  onSetNodeVisibility: (expressID: number, visible: boolean) => void;
   onDisplaySearchResults: (expressIDs: number[]) => void;
   onFitNode: (node: IfcProjectTreeNode | null) => void;
   onManualFitNode: (node: IfcProjectTreeNode | null) => void;
@@ -24,8 +26,10 @@ interface VisibleNode {
 function ProjectTab({
   treeIndex,
   selectedExpressID,
+  hiddenExpressIDs,
   lengthUnitSymbol,
   onSelectNode,
+  onSetNodeVisibility,
   onDisplaySearchResults,
   onFitNode,
   onManualFitNode,
@@ -96,6 +100,24 @@ function ProjectTab({
       );
     });
   }, [allNodesInTreeOrder, searchQuery, treeIndex]);
+
+  const subtreeHiddenByExpressID = useMemo(() => {
+    const map = new Map<number, boolean>();
+    if (!treeIndex) return map;
+    const postOrder = [...allNodesInTreeOrder].reverse();
+    postOrder.forEach((expressID) => {
+      const node = treeIndex.nodes.get(expressID);
+      if (!node) return;
+      if (node.childExpressIDs.length === 0) {
+        map.set(expressID, hiddenExpressIDs.has(expressID));
+        return;
+      }
+      const ownHidden = hiddenExpressIDs.has(expressID);
+      const allChildrenHidden = node.childExpressIDs.every((childID) => map.get(childID) === true);
+      map.set(expressID, ownHidden && allChildrenHidden);
+    });
+    return map;
+  }, [allNodesInTreeOrder, hiddenExpressIDs, treeIndex]);
 
   const activeIndex = useMemo(
     () => visibleNodes.findIndex((item) => item.expressID === effectiveActiveExpressID),
@@ -331,6 +353,18 @@ function ProjectTab({
                 <span className="tree-name" title={`${node.typeName} (${node.expressID})`}>
                   {node.name}
                 </span>
+                <button
+                  type="button"
+                  className={`tree-visibility-btn ${subtreeHiddenByExpressID.get(expressID) ? "hidden" : "visible"}`}
+                  title={subtreeHiddenByExpressID.get(expressID) ? "Show subtree" : "Hide subtree"}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const subtreeHidden = subtreeHiddenByExpressID.get(expressID) ?? false;
+                    onSetNodeVisibility(expressID, subtreeHidden);
+                  }}
+                >
+                  {subtreeHiddenByExpressID.get(expressID) ? <EyeClosedIcon /> : <EyeOpenIcon />}
+                </button>
                 {(node.kind === "site" || node.kind === "building" || node.kind === "storey") &&
                   node.elevation !== undefined && (
                     <span className="tree-elevation" title={`Elevation: ${formatElevation(node.elevation)}`}>

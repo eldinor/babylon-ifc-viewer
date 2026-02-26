@@ -107,6 +107,7 @@ function App() {
   const [elementInfo, setElementInfo] = useState<ElementInfoData | null>(null);
   const [selectedProjectExpressID, setSelectedProjectExpressID] = useState<number | null>(null);
   const [visibleExpressIDs, setVisibleExpressIDs] = useState<Set<number> | null>(null);
+  const [hiddenExpressIDs, setHiddenExpressIDs] = useState<Set<number>>(new Set());
   const [alwaysFitEnabled, setAlwaysFitEnabled] = useState<boolean>(() =>
     readStorageBool(STORAGE_KEYS.alwaysFitEnabled, false),
   );
@@ -151,6 +152,18 @@ function App() {
       sizeMb: formatFileSizeMb(modelData.sourceFileSizeBytes),
     };
   }, [modelData]);
+
+  const effectiveVisibleCount = useMemo(() => {
+    if (!modelData) return null;
+    const total = modelData.dimensionsByExpressID.size;
+    if (visibleExpressIDs === null && hiddenExpressIDs.size === 0) return null;
+    if (visibleExpressIDs === null) return Math.max(0, total - hiddenExpressIDs.size);
+    let count = 0;
+    visibleExpressIDs.forEach((id) => {
+      if (!hiddenExpressIDs.has(id)) count++;
+    });
+    return count;
+  }, [hiddenExpressIDs, modelData, visibleExpressIDs]);
 
   const sectionPosition = useMemo(() => {
     if (!modelData) return null;
@@ -224,6 +237,7 @@ function App() {
       setModelData(data);
       setSelectedProjectExpressID(null);
       setVisibleExpressIDs(null);
+      setHiddenExpressIDs(new Set());
       setElementInfo(null);
       setMeasureStart(null);
       setMeasurePinnedFirstExpressID(null);
@@ -240,6 +254,7 @@ function App() {
 
   const handleResetVisibility = useCallback(() => {
     setVisibleExpressIDs(null);
+    setHiddenExpressIDs(new Set());
   }, []);
 
   const handleDisplaySearchResults = useCallback((expressIDs: number[]) => {
@@ -247,6 +262,20 @@ function App() {
     setVisibleExpressIDs(new Set(expressIDs));
     setSelectedProjectExpressID(null);
   }, []);
+
+  const handleSetNodeVisibility = useCallback((expressID: number, visible: boolean) => {
+    if (!projectTreeIndex) return;
+    const subtreeIDs = collectSubtreeExpressIDs(expressID, projectTreeIndex);
+    setHiddenExpressIDs((prev) => {
+      const next = new Set(prev);
+      if (visible) {
+        subtreeIDs.forEach((id) => next.delete(id));
+      } else {
+        subtreeIDs.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }, [projectTreeIndex]);
 
   const handleSelectProjectNode = useCallback((node: IfcProjectTreeNode | null) => {
     if (!node) {
@@ -608,11 +637,13 @@ function App() {
           projectTreeIndex={projectTreeIndex}
           lengthUnitSymbol={modelData?.lengthUnitSymbol ?? "m"}
           selectedProjectExpressID={selectedProjectExpressID}
-          isVisibilityFiltered={visibleExpressIDs !== null}
-          visibleCount={visibleExpressIDs?.size ?? null}
+          isVisibilityFiltered={visibleExpressIDs !== null || hiddenExpressIDs.size > 0}
+          visibleCount={effectiveVisibleCount}
+          hiddenExpressIDs={hiddenExpressIDs}
           onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
           onSetTab={setActiveTab}
           onSelectProjectNode={handleSelectProjectNode}
+          onSetNodeVisibility={handleSetNodeVisibility}
           onDisplaySearchResults={handleDisplaySearchResults}
           onFitProjectNode={handleFitProjectNode}
           onManualFitProjectNode={handleManualFitProjectNode}
@@ -627,6 +658,7 @@ function App() {
           <BabylonScene
             onModelLoaded={handleModelLoaded}
             visibleExpressIDs={visibleExpressIDs}
+            hiddenExpressIDs={hiddenExpressIDs}
             onElementPicked={handleElementPicked}
             sceneBackgroundColor={sceneBackgroundColor}
             highlightColor={highlightColor}

@@ -12,11 +12,13 @@ interface SidebarProps {
   projectTreeIndex: IfcProjectTreeIndex | null;
   lengthUnitSymbol: string;
   selectedProjectExpressID: number | null;
+  hiddenExpressIDs: Set<number>;
   isVisibilityFiltered: boolean;
   visibleCount: number | null;
   onToggleSidebar: () => void;
   onSetTab: (tab: TabType) => void;
   onSelectProjectNode: (node: IfcProjectTreeNode | null) => void;
+  onSetNodeVisibility: (expressID: number, visible: boolean) => void;
   onDisplaySearchResults: (expressIDs: number[]) => void;
   onFitProjectNode: (node: IfcProjectTreeNode | null) => void;
   onManualFitProjectNode: (node: IfcProjectTreeNode | null) => void;
@@ -34,11 +36,13 @@ function Sidebar({
   projectTreeIndex,
   lengthUnitSymbol,
   selectedProjectExpressID,
+  hiddenExpressIDs,
   isVisibilityFiltered,
   visibleCount,
   onToggleSidebar,
   onSetTab,
   onSelectProjectNode,
+  onSetNodeVisibility,
   onDisplaySearchResults,
   onFitProjectNode,
   onManualFitProjectNode,
@@ -74,8 +78,10 @@ function Sidebar({
             key={projectTreeIndex ? `project-tree-${projectTreeIndex.nodes.size}-${projectTreeIndex.roots.join("-")}` : "project-tree-empty"}
             treeIndex={projectTreeIndex}
             selectedExpressID={selectedProjectExpressID}
+            hiddenExpressIDs={hiddenExpressIDs}
             lengthUnitSymbol={lengthUnitSymbol}
             onSelectNode={onSelectProjectNode}
+            onSetNodeVisibility={onSetNodeVisibility}
             onDisplaySearchResults={onDisplaySearchResults}
             onFitNode={onFitProjectNode}
             onManualFitNode={onManualFitProjectNode}
@@ -93,7 +99,7 @@ function Sidebar({
           <div className={`sidebar-visibility ${isVisibilityFiltered ? "filtered" : "all-visible"}`}>
             <span className="sidebar-visibility-text">
               {isVisibilityFiltered
-                ? `Subtree visible${visibleCount ? ` (${visibleCount})` : ""}`
+                ? `Visibility filtered${visibleCount !== null ? ` (${visibleCount})` : ""}`
                 : "All visible"}
             </span>
             {isVisibilityFiltered && (

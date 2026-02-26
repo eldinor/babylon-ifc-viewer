@@ -48,6 +48,8 @@ interface BabylonSceneProps {
   onModelLoaded?: (modelData: IfcModelData | null) => void;
   /** Explicit element express IDs visibility filter (overrides storey/site filters when set) */
   visibleExpressIDs?: Set<number> | null;
+  /** Explicit hidden express IDs (applied on top of visibility filter) */
+  hiddenExpressIDs?: Set<number>;
   /** Callback when an IFC element is picked */
   onElementPicked?: (data: ElementPickData | null) => void;
   sceneBackgroundColor?: string;
@@ -124,6 +126,7 @@ function buildAxisRanges(meshes: Scene["meshes"]) {
 function BabylonScene({
   onModelLoaded,
   visibleExpressIDs,
+  hiddenExpressIDs,
   onElementPicked,
   sceneBackgroundColor = "#1b043e",
   highlightColor = "#008080",
@@ -184,7 +187,9 @@ const [ifcReady, setIfcReady] = useState(false);
 
     meshes.forEach((mesh) => {
       const expressID = mesh.metadata?.expressID;
-      const shouldShow = visibleExpressIDs && expressID !== undefined ? visibleExpressIDs.has(expressID) : true;
+      const passesIsolateFilter = visibleExpressIDs && expressID !== undefined ? visibleExpressIDs.has(expressID) : true;
+      const notHidden = expressID !== undefined ? !hiddenExpressIDs?.has(expressID) : true;
+      const shouldShow = passesIsolateFilter && notHidden;
       mesh.isVisible = shouldShow;
       mesh.setEnabled(shouldShow);
 
@@ -198,7 +203,7 @@ const [ifcReady, setIfcReady] = useState(false);
     console.log(
       `Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (project subtree: ${visibleExpressIDs ? visibleExpressIDs.size : "off"})`,
     );
-  }, [visibleExpressIDs]);
+  }, [hiddenExpressIDs, visibleExpressIDs]);
 
   // Initialize engine and scene
   useEffect(() => {
@@ -487,6 +492,8 @@ const [ifcReady, setIfcReady] = useState(false);
         generateNormals: false,
         verbose: false,
         freezeAfterBuild: true,
+        releaseRawPartsAfterBuild:true,
+        usePBRMaterials:true
       })
 
       // Position camera to fit model

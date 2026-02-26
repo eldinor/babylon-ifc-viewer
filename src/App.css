@@ -703,12 +703,35 @@
   white-space: nowrap;
 }
 
-.tree-elevation {
+.tree-visibility-btn {
+  width: 20px;
+  height: 20px;
   margin-left: auto;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #9fb5cb;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.tree-visibility-btn:hover {
+  background-color: #1a1a2e;
+  color: #fff;
+}
+
+.tree-visibility-btn.hidden {
+  color: #7f8fa0;
+}
+
+.tree-elevation {
+  margin-left: 8px;
   color: #8dc8ef;
   font-size: 11px;
   white-space: nowrap;
-  padding-left: 8px;
 }
 
 .tree-children {
@@ -797,14 +820,21 @@
   transform: translateX(-50%);
   border: none;
   background: transparent;
-  color: #9fd8ff;
+  color: #72b7ee;
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  text-decoration: underline;
+  text-decoration: none;
+  transition: color 0.18s ease;
 }
 
 .footer-shortcuts-link:hover {
-  color: #d8f2ff;
+  color: #8ec9f5;
+}
+
+.footer-shortcuts-link:focus-visible {
+  outline: 2px solid #8ed6ff;
+  outline-offset: 2px;
 }
 
 .footer-shortcuts-link.sidebar-collapsed {

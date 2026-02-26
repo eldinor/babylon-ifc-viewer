@@ -435,6 +435,13 @@ const [ifcReady, setIfcReady] = useState(false);
     return true;
   }, []);
 
+  const getHighlightedExpressID = useCallback((): number | null => {
+    const highlightedMesh = pickingManagerRef.current?.getCurrentHighlightedMesh() ?? null;
+    if (!highlightedMesh) return null;
+    const metadata = highlightedMesh.metadata as { expressID?: unknown } | null;
+    return typeof metadata?.expressID === "number" ? metadata.expressID : null;
+  }, []);
+
 // Function to load IFC file
   const loadIfcFile = useCallback(async (file: File | string) => {
     if (!ifcAPIRef.current || !sceneRef.current) {
@@ -608,6 +615,13 @@ const [ifcReady, setIfcReady] = useState(false);
       delete window.restoreSavedView;
     };
   }, [restoreSavedView, saveCurrentView]);
+
+  useEffect(() => {
+    window.getHighlightedExpressID = getHighlightedExpressID;
+    return () => {
+      delete window.getHighlightedExpressID;
+    };
+  }, [getHighlightedExpressID]);
 
   // Auto-load sample.ifc when WebIFC is ready
   useEffect(() => {

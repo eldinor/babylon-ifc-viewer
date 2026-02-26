@@ -6,5 +6,6 @@ declare global {
     fitToExpressIDs?: (expressIDs: number[]) => void;
     saveCurrentView?: () => boolean;
     restoreSavedView?: () => boolean;
+    getHighlightedExpressID?: () => number | null;
   }
 }

@@ -35,6 +35,8 @@ interface AppHeaderProps {
   highlightColor: string;
   onSceneBackgroundColorChange: (color: string) => void;
   onHighlightColorChange: (color: string) => void;
+  showRelatedElements: boolean;
+  onShowRelatedElementsChange: (show: boolean) => void;
   onClearUserSettings: () => void;
 }
 
@@ -65,6 +67,8 @@ function AppHeader({
   highlightColor,
   onSceneBackgroundColorChange,
   onHighlightColorChange,
+  showRelatedElements,
+  onShowRelatedElementsChange,
   onClearUserSettings,
 }: AppHeaderProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -312,6 +316,14 @@ function AppHeader({
                   type="color"
                   value={highlightColor}
                   onChange={(event) => onHighlightColorChange(event.target.value)}
+                />
+              </label>
+              <label className="settings-row">
+                <span>Show related elements</span>
+                <input
+                  type="checkbox"
+                  checked={showRelatedElements}
+                  onChange={(event) => onShowRelatedElementsChange(event.target.checked)}
                 />
               </label>
               <button

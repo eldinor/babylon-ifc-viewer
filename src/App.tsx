@@ -21,6 +21,7 @@ const STORAGE_KEYS = {
   alwaysFitEnabled: "viewer.alwaysFitEnabled",
   sidebarCollapsed: "viewer.sidebarCollapsed",
   recentIfcFiles: "viewer.recentIfcFiles",
+  showRelatedElements: "viewer.showRelatedElements",
 } as const;
 
 const SESSION_KEYS = {
@@ -33,6 +34,7 @@ const SESSION_KEYS = {
 const DEFAULT_SCENE_BACKGROUND = "#18003d";
 const DEFAULT_HIGHLIGHT = "#008080";
 const MAX_RECENT_IFC_FILES = 8;
+const PUBLIC_IFC_SAMPLES = ["sample.ifc", "Ifc4_SampleHouse.ifc", "institute.ifc", "test.ifc"] as const;
 
 interface RecentIfcFile {
   name: string;
@@ -94,11 +96,12 @@ function getPickedCenter(data: ElementPickData): { x: number; y: number; z: numb
 
 function readRecentIfcFiles(): RecentIfcFile[] {
   const raw = localStorage.getItem(STORAGE_KEYS.recentIfcFiles);
-  if (!raw) return [];
+  const defaultSamples: RecentIfcFile[] = PUBLIC_IFC_SAMPLES.map((name) => ({ name, path: `./${name}` }));
+  if (!raw) return defaultSamples.slice(0, MAX_RECENT_IFC_FILES);
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
+    if (!Array.isArray(parsed)) return defaultSamples.slice(0, MAX_RECENT_IFC_FILES);
+    const persisted = parsed
       .filter(
         (item): item is RecentIfcFile =>
           !!item &&
@@ -109,8 +112,16 @@ function readRecentIfcFiles(): RecentIfcFile[] {
       )
       .filter((item) => !item.path.startsWith("blob:"))
       .slice(0, MAX_RECENT_IFC_FILES);
+
+    const merged = [...persisted];
+    defaultSamples.forEach((sample) => {
+      if (!merged.some((entry) => entry.path === sample.path)) {
+        merged.push(sample);
+      }
+    });
+    return merged.slice(0, MAX_RECENT_IFC_FILES);
   } catch {
-    return [];
+    return defaultSamples.slice(0, MAX_RECENT_IFC_FILES);
   }
 }
 
@@ -174,6 +185,10 @@ function App() {
     return isHexColor(stored) ? stored : DEFAULT_HIGHLIGHT;
   });
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [relatedPanelDismissed, setRelatedPanelDismissed] = useState(false);
+  const [showRelatedElements, setShowRelatedElements] = useState<boolean>(() =>
+    readStorageBool(STORAGE_KEYS.showRelatedElements, true),
+  );
   const [recentIfcFiles, setRecentIfcFiles] = useState<RecentIfcFile[]>(() => readRecentIfcFiles());
 
   const handleModelCleared = useCallback(() => {
@@ -260,11 +275,13 @@ function App() {
     setHighlightColor(DEFAULT_HIGHLIGHT);
     setPickMode("select");
     setAlwaysFitEnabled(false);
+    setShowRelatedElements(true);
     setSidebarCollapsed(false);
     localStorage.removeItem(STORAGE_KEYS.sceneBackgroundColor);
     localStorage.removeItem(STORAGE_KEYS.highlightColor);
     localStorage.removeItem(STORAGE_KEYS.pickMode);
     localStorage.removeItem(STORAGE_KEYS.alwaysFitEnabled);
+    localStorage.removeItem(STORAGE_KEYS.showRelatedElements);
     localStorage.removeItem(STORAGE_KEYS.sidebarCollapsed);
     setSectionEnabled(false);
     setSectionAxis("y");
@@ -408,42 +425,69 @@ function App() {
     }
   }, [alwaysFitEnabled, clearProjectTreeSelection, modelData, projectTreeIndex, selectedProjectExpressIDs]);
 
-  const handleSelectRelatedExpressID = useCallback((expressID: number) => {
+  const handleSelectRelatedExpressID = useCallback((
+    expressID: number,
+    options?: { toggle?: boolean; rangeExpressIDs?: number[] },
+  ) => {
     if (!projectTreeIndex) return;
     setActiveTab("project");
-    const relatedIDs = projectTreeIndex.nodes.has(expressID)
-      ? collectSubtreeExpressIDs(expressID, projectTreeIndex)
-      : [expressID];
 
-    setSelectedProjectExpressIDs((prev) => {
-      const next = new Set(prev);
-      if (next.size === 0) {
-        if (selectedProjectExpressIDs.size > 0) {
-          selectedProjectExpressIDs.forEach((id) => next.add(id));
-        } else if (selectedProjectExpressID !== null) {
-          next.add(selectedProjectExpressID);
-        }
+    const nextSelected = new Set(selectedProjectExpressIDs);
+    if (nextSelected.size === 0 && selectedProjectExpressID !== null) {
+      nextSelected.add(selectedProjectExpressID);
+    }
+
+    if (options?.rangeExpressIDs && options.rangeExpressIDs.length > 0) {
+      options.rangeExpressIDs.forEach((id) => nextSelected.add(id));
+    } else if (options?.toggle) {
+      if (nextSelected.has(expressID)) {
+        nextSelected.delete(expressID);
+      } else {
+        nextSelected.add(expressID);
       }
-      next.add(expressID);
-      return next;
+    } else {
+      nextSelected.add(expressID);
+    }
+
+    if (nextSelected.size === 0) {
+      clearProjectTreeSelection();
+      return;
+    }
+
+    const visibleFromSelection = new Set<number>();
+    nextSelected.forEach((selectedID) => {
+      const ids = projectTreeIndex.nodes.has(selectedID)
+        ? collectSubtreeExpressIDs(selectedID, projectTreeIndex)
+        : [selectedID];
+      ids.forEach((id) => visibleFromSelection.add(id));
     });
+
+    let nextPrimaryExpressID: number;
+    if (selectedProjectExpressID !== null && nextSelected.has(selectedProjectExpressID)) {
+      nextPrimaryExpressID = selectedProjectExpressID;
+    } else if (nextSelected.has(expressID)) {
+      nextPrimaryExpressID = expressID;
+    } else {
+      nextPrimaryExpressID = nextSelected.values().next().value as number;
+    }
+
+    setSelectedProjectExpressIDs(nextSelected);
+    setSelectedProjectExpressID(nextPrimaryExpressID);
 
     setVisibleExpressIDs((prev) => {
       if (prev === null) {
-        // Keep unfiltered scene unfiltered; related element is already visible.
+        // Keep unfiltered scene unfiltered; related selections should not force filtering.
         return null;
       }
-      const next = new Set(prev);
-      relatedIDs.forEach((id) => next.add(id));
-      return next;
+      return new Set(visibleFromSelection);
     });
 
     setHiddenExpressIDs((prev) => {
       const next = new Set(prev);
-      relatedIDs.forEach((id) => next.delete(id));
+      visibleFromSelection.forEach((id) => next.delete(id));
       return next;
     });
-  }, [projectTreeIndex, selectedProjectExpressID, selectedProjectExpressIDs]);
+  }, [clearProjectTreeSelection, projectTreeIndex, selectedProjectExpressID, selectedProjectExpressIDs]);
 
   const handleIsolateExpandToParentScope = useCallback((expressID: number) => {
     if (!projectTreeIndex) return;
@@ -461,11 +505,10 @@ function App() {
   }, [alwaysFitEnabled, projectTreeIndex]);
 
   const handleIsolateButtonDoubleClick = useCallback(() => {
-    if (pickMode !== "isolate") return;
-    const sourceExpressID = selectedProjectExpressID ?? elementInfo?.expressID ?? null;
+    const sourceExpressID = selectedProjectExpressID ?? elementInfo?.expressID ?? window.getHighlightedExpressID?.() ?? null;
     if (sourceExpressID === null) return;
     handleIsolateExpandToParentScope(sourceExpressID);
-  }, [elementInfo?.expressID, handleIsolateExpandToParentScope, pickMode, selectedProjectExpressID]);
+  }, [elementInfo?.expressID, handleIsolateExpandToParentScope, selectedProjectExpressID]);
 
   const handleBreadcrumbClick = useCallback((expressID: number) => {
     if (!projectTreeIndex) return;
@@ -507,6 +550,12 @@ function App() {
   const handleElementPicked = useCallback((data: ElementPickData | null) => {
     if (!data) {
       setElementInfo(null);
+      return;
+    }
+
+    // Double-click on mesh expands isolate scope to parent, same behavior as Isolate button double-click.
+    if (data.clickCount >= 2 && projectTreeIndex) {
+      handleIsolateExpandToParentScope(data.expressID);
       return;
     }
 
@@ -574,11 +623,6 @@ function App() {
             projectTreeIndex,
           }),
         );
-        return;
-      }
-
-      if (data.clickCount >= 2) {
-        handleIsolateExpandToParentScope(data.expressID);
         return;
       }
 
@@ -676,6 +720,10 @@ function App() {
   }, [alwaysFitEnabled]);
 
   useLayoutEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.showRelatedElements, showRelatedElements ? "1" : "0");
+  }, [showRelatedElements]);
+
+  useLayoutEffect(() => {
     localStorage.setItem(STORAGE_KEYS.sidebarCollapsed, sidebarCollapsed ? "1" : "0");
   }, [sidebarCollapsed]);
 
@@ -760,6 +808,10 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [handlePickModeChange, handleRestoreView, shortcutsOpen]);
 
+  useEffect(() => {
+    setRelatedPanelDismissed(false);
+  }, [elementInfo?.expressID]);
+
   return (
     <div className="app">
       <AppHeader
@@ -794,6 +846,8 @@ function App() {
         highlightColor={highlightColor}
         onSceneBackgroundColorChange={handleSceneBackgroundColorChange}
         onHighlightColorChange={handleHighlightColorChange}
+        showRelatedElements={showRelatedElements}
+        onShowRelatedElementsChange={setShowRelatedElements}
         onClearUserSettings={handleClearUserSettings}
       />
 
@@ -802,10 +856,14 @@ function App() {
         onClose={() => setElementInfo(null)}
         sidebarCollapsed={sidebarCollapsed}
       />
-      <RelatedElementsPanel
-        relatedElements={elementInfo?.relatedElements ?? []}
-        onSelectRelatedExpressID={handleSelectRelatedExpressID}
-      />
+      {showRelatedElements && !relatedPanelDismissed && (
+        <RelatedElementsPanel
+          relatedElements={elementInfo?.relatedElements ?? []}
+          selectedExpressIDs={selectedProjectExpressIDs}
+          onSelectRelatedExpressID={handleSelectRelatedExpressID}
+          onClose={() => setRelatedPanelDismissed(true)}
+        />
+      )}
       <KeyboardShortcuts
         isOpen={shortcutsOpen}
         onClose={() => setShortcutsOpen(false)}

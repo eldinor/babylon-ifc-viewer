@@ -10,6 +10,7 @@ import {
   Plane,
   Material,
 } from "@babylonjs/core";
+import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstrumentation";
 import type { PickMode, SectionAxis } from "../types/app";
 import {
   initializeWebIFC,
@@ -32,6 +33,9 @@ export interface IfcModelData {
   projectInfo: ProjectInfoResult | null;
   modelID: number;
   ifcGlobalId: string; // GlobalId from IFC file
+  ifcSchema: string;
+  partCount: number;
+  meshCount: number;
   ifcAPI: WebIFC.IfcAPI;
   dimensionsByExpressID: Map<number, { length: number; width: number; height: number; elevation: number }>;
   lengthUnitSymbol: string;
@@ -44,8 +48,15 @@ export interface IfcModelData {
   };
 }
 
+export interface SceneStats {
+  fps: number | null;
+  drawCalls: number | null;
+  memoryMb: number | null;
+}
+
 interface BabylonSceneProps {
   onModelLoaded?: (modelData: IfcModelData | null) => void;
+  onSceneStatsUpdate?: (stats: SceneStats) => void;
   /** Explicit element express IDs visibility filter (overrides storey/site filters when set) */
   visibleExpressIDs?: Set<number> | null;
   /** Explicit hidden express IDs (applied on top of visibility filter) */
@@ -125,6 +136,7 @@ function buildAxisRanges(meshes: Scene["meshes"]) {
 
 function BabylonScene({
   onModelLoaded,
+  onSceneStatsUpdate,
   visibleExpressIDs,
   hiddenExpressIDs,
   onElementPicked,
@@ -140,9 +152,11 @@ function BabylonScene({
   const sceneRef = useRef<Scene | null>(null);
   const ifcAPIRef = useRef<WebIFC.IfcAPI | null>(null);
   const modelRef = useRef<RawIfcModel | null>(null);
+  const sceneInstrumentationRef = useRef<SceneInstrumentation | null>(null);
   const pickingManagerRef = useRef<PickingManager | null>(null);
   const savedViewRef = useRef<CameraViewSnapshot | null>(null);
   const onModelLoadedRef = useRef<typeof onModelLoaded>(onModelLoaded);
+  const onSceneStatsUpdateRef = useRef<typeof onSceneStatsUpdate>(onSceneStatsUpdate);
   const onElementPickedRef = useRef<typeof onElementPicked>(onElementPicked);
   const [isLoading, setIsLoading] = useState(false);
 const [error, setError] = useState<string | null>(null);
@@ -153,8 +167,35 @@ const [ifcReady, setIfcReady] = useState(false);
   }, [onModelLoaded]);
 
   useEffect(() => {
+    onSceneStatsUpdateRef.current = onSceneStatsUpdate;
+  }, [onSceneStatsUpdate]);
+
+  useEffect(() => {
     onElementPickedRef.current = onElementPicked;
   }, [onElementPicked]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      const engine = engineRef.current;
+      const instrumentation = sceneInstrumentationRef.current;
+      if (!engine || !instrumentation || !onSceneStatsUpdateRef.current) return;
+
+      const fpsRaw = engine.getFps();
+      const fps = Number.isFinite(fpsRaw) ? Math.round(fpsRaw) : null;
+
+      const drawCallsRaw = instrumentation.drawCallsCounter.current;
+      const drawCalls = typeof drawCallsRaw === "number" && Number.isFinite(drawCallsRaw) ? drawCallsRaw : null;
+
+      const memoryBytes = (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory?.usedJSHeapSize;
+      const memoryMb = typeof memoryBytes === "number" && Number.isFinite(memoryBytes) ? memoryBytes / (1024 * 1024) : null;
+
+      onSceneStatsUpdateRef.current({ fps, drawCalls, memoryMb });
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   const buildDimensionsMap = useCallback((meshes: Scene["meshes"]) => {
     const map = new Map<number, { length: number; width: number; height: number; elevation: number }>();
@@ -217,6 +258,7 @@ const [ifcReady, setIfcReady] = useState(false);
 
     const scene = new Scene(engine)
     sceneRef.current = scene
+    sceneInstrumentationRef.current = new SceneInstrumentation(scene)
 
     // Create camera
     const camera = new ArcRotateCamera(
@@ -289,6 +331,11 @@ const [ifcReady, setIfcReady] = useState(false);
       if (pickingManagerRef.current) {
         pickingManagerRef.current.dispose()
         pickingManagerRef.current = null
+      }
+
+      if (sceneInstrumentationRef.current) {
+        sceneInstrumentationRef.current.dispose()
+        sceneInstrumentationRef.current = null
       }
       
       // Close IFC model
@@ -532,10 +579,14 @@ const [ifcReady, setIfcReady] = useState(false);
       if (onModelLoadedRef.current && ifcAPIRef.current) {
         const dimensionsByExpressID = buildDimensionsMap(meshes);
         const lengthUnit = getIfcLengthUnitInfo(ifcAPIRef.current, model.modelID);
+        const ifcSchema = ifcAPIRef.current.GetModelSchema(model.modelID) || "Unknown IFC";
         onModelLoadedRef.current({
           projectInfo,
           modelID: model.modelID,
           ifcGlobalId,
+          ifcSchema,
+          partCount: model.rawStats.partCount,
+          meshCount: meshes.length,
           ifcAPI: ifcAPIRef.current,
           dimensionsByExpressID,
           lengthUnitSymbol: lengthUnit.symbol,

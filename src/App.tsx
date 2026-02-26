@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import "./App.css";
-import BabylonScene, { type IfcModelData } from "./components/BabylonScene";
+import BabylonScene, { type IfcModelData, type SceneStats } from "./components/BabylonScene";
 import AppHeader from "./components/AppHeader";
 import ElementInfoPanel from "./components/ElementInfoPanel";
 import RelatedElementsPanel from "./components/RelatedElementsPanel";
@@ -85,6 +85,11 @@ function formatLength(value: number, unitSymbol: string): string {
   const rounded = Math.round(value * 1000) / 1000;
   const raw = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(3).replace(/\.?0+$/, "");
   return `${raw} ${unitSymbol}`;
+}
+
+function formatFooterMemory(memoryMb: number | null): string {
+  if (memoryMb === null) return "-";
+  return `${memoryMb.toFixed(0)} MB`;
 }
 
 function getPickedCenter(data: ElementPickData): { x: number; y: number; z: number } | null {
@@ -190,6 +195,7 @@ function App() {
     readStorageBool(STORAGE_KEYS.showRelatedElements, true),
   );
   const [recentIfcFiles, setRecentIfcFiles] = useState<RecentIfcFile[]>(() => readRecentIfcFiles());
+  const [sceneStats, setSceneStats] = useState<SceneStats>({ fps: null, drawCalls: null, memoryMb: null });
 
   const handleModelCleared = useCallback(() => {
     setElementInfo(null);
@@ -215,8 +221,11 @@ function App() {
   const footerFileInfo = useMemo(() => {
     if (!modelData) return null;
     return {
+      ifcSchema: modelData.ifcSchema,
       name: modelData.sourceFileName,
       sizeMb: formatFileSizeMb(modelData.sourceFileSizeBytes),
+      partCount: modelData.partCount,
+      meshCount: modelData.meshCount,
     };
   }, [modelData]);
 
@@ -929,6 +938,7 @@ function App() {
         <main className="canvas-container">
           <BabylonScene
             onModelLoaded={handleModelLoaded}
+            onSceneStatsUpdate={setSceneStats}
             visibleExpressIDs={visibleExpressIDs}
             hiddenExpressIDs={hiddenExpressIDs}
             onElementPicked={handleElementPicked}
@@ -946,6 +956,7 @@ function App() {
         <div className="footer-file-info">
           {footerFileInfo ? (
             <>
+              <span className="footer-ifc-schema">{footerFileInfo.ifcSchema}</span>
               <span>{footerFileInfo.name}</span>
               <span className="footer-file-size">{footerFileInfo.sizeMb}</span>
             </>
@@ -960,6 +971,15 @@ function App() {
         >
           Keyboard Shortcuts: Shift+?
         </button>
+        <div className="footer-model-stats" aria-label="Model summary">
+          <span>{`Parts - ${footerFileInfo ? footerFileInfo.partCount : "-"}`}</span>
+          <span>{`Meshes - ${footerFileInfo ? footerFileInfo.meshCount : "-"}`}</span>
+        </div>
+        <div className="footer-status-panel" aria-label="Scene performance metrics">
+          <span>FPS: {sceneStats.fps ?? "-"}</span>
+          <span>Draw Calls: {sceneStats.drawCalls ?? "-"}</span>
+          <span>Memory: {formatFooterMemory(sceneStats.memoryMb)}</span>
+        </div>
       </footer>
     </div>
   );

@@ -148,6 +148,7 @@ function addRecentFile(
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectTreeIndexRef = useRef<IfcProjectTreeIndex | null>(null);
+  const autoLoadZoomModelIDRef = useRef<number | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
     readStorageBool(STORAGE_KEYS.sidebarCollapsed, false),
   );
@@ -822,6 +823,24 @@ function App() {
   useEffect(() => {
     setRelatedPanelDismissed(false);
   }, [elementInfo?.expressID]);
+
+  useEffect(() => {
+    if (!modelData || !projectTreeIndex || !window.fitToExpressIDs) return;
+    if (autoLoadZoomModelIDRef.current === modelData.modelID) return;
+
+    const firstRootID = projectTreeIndex.roots[0];
+    if (firstRootID === undefined) return;
+    const firstRootNode = projectTreeIndex.nodes.get(firstRootID);
+    if (!firstRootNode) return;
+
+    // Initial framing: prefer next hierarchy level over root (project) to avoid overly wide fit.
+    const preferredExpressID = firstRootNode.childExpressIDs[0] ?? firstRootNode.expressID;
+    const zoomScopeIDs = collectSubtreeExpressIDs(preferredExpressID, projectTreeIndex);
+    if (zoomScopeIDs.length === 0) return;
+
+    window.fitToExpressIDs(zoomScopeIDs);
+    autoLoadZoomModelIDRef.current = modelData.modelID;
+  }, [modelData, projectTreeIndex]);
 
   return (
     <div className="app">

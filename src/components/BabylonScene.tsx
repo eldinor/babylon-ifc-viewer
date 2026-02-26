@@ -234,7 +234,7 @@ const [ifcReady, setIfcReady] = useState(false);
 
     // Create lights for PBR
     const light = new HemisphericLight('light', new Vector3(0, 1, 0), scene)
-    light.intensity = 0.6
+    light.intensity = 0.7
     light.groundColor = new Color3(0.3, 0.3, 0.3)
 
     // Render loop

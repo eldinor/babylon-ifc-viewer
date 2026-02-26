@@ -5,15 +5,16 @@ import { AlwaysFitIcon, EyeClosedIcon, EyeOpenIcon, FitViewIcon, RestoreViewIcon
 interface ProjectTabProps {
   treeIndex: IfcProjectTreeIndex | null;
   selectedExpressID: number | null;
+  selectedExpressIDs: Set<number>;
   hiddenExpressIDs: Set<number>;
   lengthUnitSymbol: string;
-  onSelectNode: (node: IfcProjectTreeNode | null) => void;
+  onSelectNode: (node: IfcProjectTreeNode | null, options?: { append?: boolean; replaceExpressIDs?: number[] }) => void;
   onSetNodeVisibility: (expressID: number, visible: boolean) => void;
   onDisplaySearchResults: (expressIDs: number[]) => void;
   onFitNode: (node: IfcProjectTreeNode | null) => void;
   onManualFitNode: (node: IfcProjectTreeNode | null) => void;
-  onRestoreView: () => void;
-  canRestoreView: boolean;
+  onZoomParent: () => void;
+  canZoomParent: boolean;
   alwaysFitEnabled: boolean;
   onToggleAlwaysFit: () => void;
 }
@@ -26,6 +27,7 @@ interface VisibleNode {
 function ProjectTab({
   treeIndex,
   selectedExpressID,
+  selectedExpressIDs,
   hiddenExpressIDs,
   lengthUnitSymbol,
   onSelectNode,
@@ -33,8 +35,8 @@ function ProjectTab({
   onDisplaySearchResults,
   onFitNode,
   onManualFitNode,
-  onRestoreView,
-  canRestoreView,
+  onZoomParent,
+  canZoomParent,
   alwaysFitEnabled,
   onToggleAlwaysFit,
 }: ProjectTabProps) {
@@ -42,19 +44,22 @@ function ProjectTab({
   const [activeExpressID, setActiveExpressID] = useState<number | null>(() => treeIndex?.roots[0] ?? null);
   const [searchQuery, setSearchQuery] = useState("");
   const [matchIndex, setMatchIndex] = useState(0);
+  const [selectionAnchorExpressID, setSelectionAnchorExpressID] = useState<number | null>(null);
   const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const treeContainerRef = useRef<HTMLDivElement>(null);
 
   const effectiveExpandedIds = useMemo(() => {
-    if (!treeIndex || selectedExpressID === null) return expandedIds;
+    if (!treeIndex) return expandedIds;
     const next = new Set(expandedIds);
-    let current = treeIndex.parentByExpressID.get(selectedExpressID);
-    while (current !== undefined) {
-      next.add(current);
-      current = treeIndex.parentByExpressID.get(current);
-    }
+    selectedExpressIDs.forEach((selectedID) => {
+      let current = treeIndex.parentByExpressID.get(selectedID);
+      while (current !== undefined) {
+        next.add(current);
+        current = treeIndex.parentByExpressID.get(current);
+      }
+    });
     return next;
-  }, [expandedIds, selectedExpressID, treeIndex]);
+  }, [expandedIds, selectedExpressIDs, treeIndex]);
 
   const effectiveActiveExpressID = activeExpressID ?? selectedExpressID ?? treeIndex?.roots[0] ?? null;
 
@@ -176,13 +181,52 @@ function ProjectTab({
     if (node) onSelectNode(node);
   };
 
-  const handleNodeClick = (expressID: number) => {
+  const handleNodeMouseClick = (event: React.MouseEvent<HTMLDivElement>, expressID: number) => {
     setActiveExpressID(expressID);
-    if (selectedExpressID === expressID) {
-      onSelectNode(null);
-    } else {
-      selectByExpressID(expressID);
+    const node = treeIndex?.nodes.get(expressID) ?? null;
+    if (!node) return;
+
+    if (event.shiftKey) {
+      const order = visibleNodes.map((item) => item.expressID);
+      const anchor = selectionAnchorExpressID ?? selectedExpressID ?? expressID;
+      const startIndex = order.indexOf(anchor);
+      const endIndex = order.indexOf(expressID);
+      if (startIndex === -1 || endIndex === -1) {
+        onSelectNode(node);
+        setSelectionAnchorExpressID(expressID);
+        return;
+      }
+      const from = Math.min(startIndex, endIndex);
+      const to = Math.max(startIndex, endIndex);
+      const rangeIDs = order.slice(from, to + 1);
+      onSelectNode(node, { replaceExpressIDs: rangeIDs });
+      if (selectionAnchorExpressID === null) {
+        setSelectionAnchorExpressID(anchor);
+      }
+      return;
     }
+
+    if (event.ctrlKey || event.metaKey) {
+      if (selectedExpressIDs.has(expressID) && selectedExpressIDs.size === 1) {
+        onSelectNode(null);
+        setSelectionAnchorExpressID(null);
+        return;
+      }
+      onSelectNode(node, { append: true });
+      if (selectionAnchorExpressID === null) {
+        setSelectionAnchorExpressID(expressID);
+      }
+      return;
+    }
+
+    if (selectedExpressIDs.has(expressID) && selectedExpressIDs.size === 1) {
+      onSelectNode(null);
+      setSelectionAnchorExpressID(null);
+      return;
+    }
+
+    onSelectNode(node);
+    setSelectionAnchorExpressID(expressID);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -227,10 +271,43 @@ function ProjectTab({
 
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      if (selectedExpressID === currentExpressID) {
+      if (event.shiftKey) {
+        const node = treeIndex.nodes.get(currentExpressID) ?? null;
+        if (!node) return;
+        const order = visibleNodes.map((item) => item.expressID);
+        const anchor = selectionAnchorExpressID ?? selectedExpressID ?? currentExpressID;
+        const startIndex = order.indexOf(anchor);
+        const endIndex = order.indexOf(currentExpressID);
+        if (startIndex === -1 || endIndex === -1) {
+          onSelectNode(node);
+          setSelectionAnchorExpressID(currentExpressID);
+          return;
+        }
+        const from = Math.min(startIndex, endIndex);
+        const to = Math.max(startIndex, endIndex);
+        const rangeIDs = order.slice(from, to + 1);
+        onSelectNode(node, { replaceExpressIDs: rangeIDs });
+        if (selectionAnchorExpressID === null) {
+          setSelectionAnchorExpressID(anchor);
+        }
+        return;
+      }
+      if (event.ctrlKey || event.metaKey) {
+        const node = treeIndex.nodes.get(currentExpressID) ?? null;
+        if (node) {
+          onSelectNode(node, { append: true });
+          if (selectionAnchorExpressID === null) {
+            setSelectionAnchorExpressID(currentExpressID);
+          }
+        }
+        return;
+      }
+      if (selectedExpressID === currentExpressID && selectedExpressIDs.size === 1) {
         onSelectNode(null);
+        setSelectionAnchorExpressID(null);
       } else {
         selectByExpressID(currentExpressID);
+        setSelectionAnchorExpressID(currentExpressID);
       }
     }
   };
@@ -284,9 +361,9 @@ function ProjectTab({
           <button
             type="button"
             className="tree-restore-btn"
-            title="Restore view before manual fit"
-            onClick={onRestoreView}
-            disabled={!canRestoreView}
+            title="Zoom to parent element (R)"
+            onClick={onZoomParent}
+            disabled={!canZoomParent}
           >
             <RestoreViewIcon />
           </button>
@@ -322,14 +399,14 @@ function ProjectTab({
           if (!node) return null;
           const hasChildren = node.childExpressIDs.length > 0;
           const isExpanded = effectiveExpandedIds.has(expressID);
-          const isSelected = selectedExpressID === expressID;
+          const isSelected = selectedExpressIDs.has(expressID);
           const isActive = effectiveActiveExpressID === expressID;
 
           return (
             <div key={node.id} className="tree-row" style={{ paddingLeft: `${depth * 8}px` }}>
               <div
                 className={`tree-item ${isSelected ? "selected" : ""} ${isActive ? "active" : ""}`}
-                onClick={() => handleNodeClick(expressID)}
+                onClick={(event) => handleNodeMouseClick(event, expressID)}
                 onDoubleClick={() => onFitNode(node)}
                 ref={(el) => {
                   if (el) {

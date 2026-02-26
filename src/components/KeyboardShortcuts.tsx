@@ -1,6 +1,7 @@
 interface KeyboardShortcutsProps {
   isOpen: boolean;
   onClose: () => void;
+  sidebarCollapsed: boolean;
 }
 
 interface ShortcutItem {
@@ -20,7 +21,7 @@ const GROUPS: Array<{ title: string; items: ShortcutItem[] }> = [
     title: "Camera",
     items: [
       { keys: ["F"], action: "Fit selected element/subtree" },
-      { keys: ["R"], action: "Restore camera view saved before manual fit" },
+      { keys: ["R"], action: "Zoom to parent element" },
     ],
   },
   {
@@ -32,6 +33,10 @@ const GROUPS: Array<{ title: string; items: ShortcutItem[] }> = [
       { keys: ["ArrowRight"], action: "Expand" },
       { keys: ["Enter"], action: "Select focused item" },
       { keys: ["Space"], action: "Select focused item" },
+      { keys: ["Ctrl", "Click"], action: "Toggle item in selection" },
+      { keys: ["Shift", "Click"], action: "Select range from anchor to item" },
+      { keys: ["Ctrl", "Enter"], action: "Toggle focused item in selection" },
+      { keys: ["Shift", "Enter"], action: "Select focused range from anchor" },
     ],
   },
   {
@@ -46,12 +51,18 @@ const GROUPS: Array<{ title: string; items: ShortcutItem[] }> = [
   },
 ];
 
-function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
+function KeyboardShortcuts({ isOpen, onClose, sidebarCollapsed }: KeyboardShortcutsProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="shortcuts-overlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
-      <div className="shortcuts-panel">
+    <div
+      className={`shortcuts-overlay ${sidebarCollapsed ? "sidebar-collapsed" : "sidebar-open"}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Keyboard shortcuts"
+      onClick={onClose}
+    >
+      <div className="shortcuts-panel" onClick={(event) => event.stopPropagation()}>
         <div className="shortcuts-header">
           <h3>Keyboard Shortcuts</h3>
           <button type="button" className="shortcuts-close-btn" onClick={onClose} title="Close">

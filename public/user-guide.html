@@ -96,6 +96,11 @@
           <li>Select a <code>.ifc</code> file from your computer.</li>
           <li>Wait for parsing and scene creation to complete.</li>
         </ol>
+        <p>You can also use <strong>Recent</strong> (next to Open IFC) to reopen previously loaded models.</p>
+        <ul>
+          <li>Menu labels show file names only.</li>
+          <li>Full file paths are available in tooltip (<code>title</code>).</li>
+        </ul>
         <p class="muted">Loading a new model resets current selection and closes Element Info.</p>
       </section>
 
@@ -104,7 +109,9 @@
         <ul>
           <li>Expand/collapse nodes with the arrow control.</li>
           <li>Click a node to select it and isolate visibility for its full subtree in the scene.</li>
+          <li><strong>Multi-select:</strong> <code>Ctrl+Click</code> toggles nodes, <code>Shift+Click</code> selects a range from anchor.</li>
           <li>Keyboard: <code>ArrowRight</code> expand, <code>ArrowLeft</code> collapse, <code>Enter</code>/<code>Space</code> select.</li>
+          <li>Keyboard multi-select: <code>Ctrl+Enter</code> toggle focused node, <code>Shift+Enter</code> range-select from anchor.</li>
         </ul>
       </section>
 
@@ -113,8 +120,8 @@
         <ul>
           <li><strong>Select</strong>: click a mesh to select and show element info, with project-tree-aware selection behavior.</li>
           <li><strong>Isolate</strong>: click a mesh to isolate it (or subtree when mapped in tree).</li>
-          <li><strong>Isolate scope expand</strong>: in Isolate mode, double-click a mesh to show its parent scope (parent and all parent children/subtrees).</li>
-          <li><strong>Isolate button double-click</strong>: same scope expand for the current selected element.</li>
+          <li><strong>Mesh double-click</strong>: zooms to parent scope of the clicked mesh (works in all pick modes, including Measure).</li>
+          <li><strong>Isolate button double-click</strong>: same parent-scope zoom for the current selected/highlighted element.</li>
           <li><strong>Measure</strong>: click first element, then second element to get distance and dX/dY/dZ.</li>
           <li><strong>Inspect</strong>: info-focused pick mode; updates Element Info directly without select/isolate tree behavior.</li>
         </ul>
@@ -144,17 +151,30 @@
       </section>
 
       <section class="card">
-        <h2>6. Camera and View Controls</h2>
+        <h2>6. Related Elements Panel</h2>
+        <ul>
+          <li>Displayed on the right side, below the header, when related elements are available.</li>
+          <li>Shows common relations (for example parent/sibling/child) with type and Express ID.</li>
+          <li>Clicking a related item adds it to current visible/selected context (does not replace current selection).</li>
+          <li><code>Ctrl+Click</code> toggles related items; <code>Shift+Click</code> selects range.</li>
+          <li>Clicking an already selected related item deselects it.</li>
+          <li>Visibility can be controlled from user settings with <strong>Show related elements</strong> (enabled by default).</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>7. Camera and View Controls</h2>
         <ul>
           <li><strong>Fit</strong> focuses camera on selected item/subtree.</li>
-          <li><strong>Restore</strong> returns camera to the saved position before manual fit.</li>
+          <li><strong>Zoom Parent</strong> focuses camera on the parent scope of current element.</li>
+          <li><strong>Zoom Parent</strong> keeps current Project Tree selection (no selection switch to parent).</li>
           <li><strong>Always Fit</strong> auto-fits on selection changes.</li>
           <li>Breadcrumbs in header are clickable and keep tree selection in sync.</li>
         </ul>
       </section>
 
       <section class="card">
-        <h2>7. Tips and Troubleshooting</h2>
+        <h2>8. Tips and Troubleshooting</h2>
         <ul>
           <li>If picking does not return data, verify the loaded file contains IFC geometry and metadata.</li>
           <li>If performance drops on huge models, expand only relevant tree branches.</li>
@@ -167,8 +187,9 @@
         <ul>
           <li><code>Shift+?</code> or <code>?</code>: Open/close shortcuts dialog</li>
           <li><code>Esc</code>: Close shortcuts dialog</li>
+          <li>Mouse click outside shortcuts panel: Close shortcuts dialog</li>
           <li><code>F</code>: Fit selected element/subtree</li>
-          <li><code>R</code>: Restore camera view saved before manual fit</li>
+          <li><code>R</code>: Zoom to parent element</li>
           <li><code>Ctrl+S</code>: Select mode</li>
           <li><code>Ctrl+I</code>: Isolate mode</li>
           <li><code>Ctrl+M</code>: Measure mode</li>
@@ -178,6 +199,8 @@
           <li><code>ArrowLeft</code>: Collapse focused tree node</li>
           <li><code>ArrowUp</code>/<code>ArrowDown</code>: Move tree focus</li>
           <li><code>Enter</code> / <code>Space</code>: Select focused tree node</li>
+          <li><code>Ctrl+Click</code> / <code>Ctrl+Enter</code>: Toggle tree item in selection</li>
+          <li><code>Shift+Click</code> / <code>Shift+Enter</code>: Range selection from anchor</li>
         </ul>
       </section>
     </main>

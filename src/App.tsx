@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import "./App.css";
-import BabylonScene, { type IfcModelData } from "./components/BabylonScene";
+import BabylonScene, { type IfcModelData, type SceneStats } from "./components/BabylonScene";
 import AppHeader from "./components/AppHeader";
 import ElementInfoPanel from "./components/ElementInfoPanel";
+import RelatedElementsPanel from "./components/RelatedElementsPanel";
 import Sidebar from "./components/Sidebar";
 import KeyboardShortcuts from "./components/KeyboardShortcuts";
 import { useModelData } from "./hooks/useModelData";
@@ -19,6 +20,8 @@ const STORAGE_KEYS = {
   pickMode: "viewer.pickMode",
   alwaysFitEnabled: "viewer.alwaysFitEnabled",
   sidebarCollapsed: "viewer.sidebarCollapsed",
+  recentIfcFiles: "viewer.recentIfcFiles",
+  showRelatedElements: "viewer.showRelatedElements",
 } as const;
 
 const SESSION_KEYS = {
@@ -30,6 +33,13 @@ const SESSION_KEYS = {
 
 const DEFAULT_SCENE_BACKGROUND = "#18003d";
 const DEFAULT_HIGHLIGHT = "#008080";
+const MAX_RECENT_IFC_FILES = 8;
+const PUBLIC_IFC_SAMPLES = ["sample.ifc", "Ifc4_SampleHouse.ifc", "institute.ifc", "test.ifc"] as const;
+
+interface RecentIfcFile {
+  name: string;
+  path: string;
+}
 
 function isHexColor(value: string | null): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
@@ -77,6 +87,11 @@ function formatLength(value: number, unitSymbol: string): string {
   return `${raw} ${unitSymbol}`;
 }
 
+function formatFooterMemory(memoryMb: number | null): string {
+  if (memoryMb === null) return "-";
+  return `${memoryMb.toFixed(0)} MB`;
+}
+
 function getPickedCenter(data: ElementPickData): { x: number; y: number; z: number } | null {
   const center = data.mesh.getBoundingInfo()?.boundingBox.centerWorld;
   if (!center) return null;
@@ -84,9 +99,61 @@ function getPickedCenter(data: ElementPickData): { x: number; y: number; z: numb
   return { x: center.x, y: center.y, z: center.z };
 }
 
+function readRecentIfcFiles(): RecentIfcFile[] {
+  const raw = localStorage.getItem(STORAGE_KEYS.recentIfcFiles);
+  const defaultSamples: RecentIfcFile[] = PUBLIC_IFC_SAMPLES.map((name) => ({ name, path: `./${name}` }));
+  if (!raw) return defaultSamples.slice(0, MAX_RECENT_IFC_FILES);
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return defaultSamples.slice(0, MAX_RECENT_IFC_FILES);
+    const persisted = parsed
+      .filter(
+        (item): item is RecentIfcFile =>
+          !!item &&
+          typeof item === "object" &&
+          typeof (item as { name?: unknown }).name === "string" &&
+          typeof (item as { path?: unknown }).path === "string" &&
+          (item as { path: string }).path.trim().length > 0,
+      )
+      .filter((item) => !item.path.startsWith("blob:"))
+      .slice(0, MAX_RECENT_IFC_FILES);
+
+    const merged = [...persisted];
+    defaultSamples.forEach((sample) => {
+      if (!merged.some((entry) => entry.path === sample.path)) {
+        merged.push(sample);
+      }
+    });
+    return merged.slice(0, MAX_RECENT_IFC_FILES);
+  } catch {
+    return defaultSamples.slice(0, MAX_RECENT_IFC_FILES);
+  }
+}
+
+function fileNameFromPath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) return "Unknown.ifc";
+  const normalized = trimmed.replace(/\\/g, "/");
+  const parts = normalized.split("/");
+  const last = parts[parts.length - 1]?.trim();
+  return last && last.length > 0 ? last : trimmed;
+}
+
+function addRecentFile(
+  previous: RecentIfcFile[],
+  nextEntry: RecentIfcFile,
+): RecentIfcFile[] {
+  const next: RecentIfcFile[] = [nextEntry];
+  previous.forEach((entry) => {
+    if (entry.path !== nextEntry.path) next.push(entry);
+  });
+  return next.slice(0, MAX_RECENT_IFC_FILES);
+}
+
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectTreeIndexRef = useRef<IfcProjectTreeIndex | null>(null);
+  const autoLoadZoomModelIDRef = useRef<number | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
     readStorageBool(STORAGE_KEYS.sidebarCollapsed, false),
   );
@@ -106,12 +173,12 @@ function App() {
   );
   const [elementInfo, setElementInfo] = useState<ElementInfoData | null>(null);
   const [selectedProjectExpressID, setSelectedProjectExpressID] = useState<number | null>(null);
+  const [selectedProjectExpressIDs, setSelectedProjectExpressIDs] = useState<Set<number>>(new Set());
   const [visibleExpressIDs, setVisibleExpressIDs] = useState<Set<number> | null>(null);
   const [hiddenExpressIDs, setHiddenExpressIDs] = useState<Set<number>>(new Set());
   const [alwaysFitEnabled, setAlwaysFitEnabled] = useState<boolean>(() =>
     readStorageBool(STORAGE_KEYS.alwaysFitEnabled, false),
   );
-  const [canRestoreView, setCanRestoreView] = useState(false);
   const [measureStart, setMeasureStart] = useState<{ expressID: number; center: { x: number; y: number; z: number } } | null>(null);
   const [measurePinnedFirstExpressID, setMeasurePinnedFirstExpressID] = useState<number | null>(null);
   const [sceneBackgroundColor, setSceneBackgroundColor] = useState<string>(() => {
@@ -123,6 +190,12 @@ function App() {
     return isHexColor(stored) ? stored : DEFAULT_HIGHLIGHT;
   });
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [relatedPanelDismissed, setRelatedPanelDismissed] = useState(false);
+  const [showRelatedElements, setShowRelatedElements] = useState<boolean>(() =>
+    readStorageBool(STORAGE_KEYS.showRelatedElements, true),
+  );
+  const [recentIfcFiles, setRecentIfcFiles] = useState<RecentIfcFile[]>(() => readRecentIfcFiles());
+  const [sceneStats, setSceneStats] = useState<SceneStats>({ fps: null, drawCalls: null, memoryMb: null });
 
   const handleModelCleared = useCallback(() => {
     setElementInfo(null);
@@ -148,8 +221,11 @@ function App() {
   const footerFileInfo = useMemo(() => {
     if (!modelData) return null;
     return {
+      ifcSchema: modelData.ifcSchema,
       name: modelData.sourceFileName,
       sizeMb: formatFileSizeMb(modelData.sourceFileSizeBytes),
+      partCount: modelData.partCount,
+      meshCount: modelData.meshCount,
     };
   }, [modelData]);
 
@@ -208,11 +284,13 @@ function App() {
     setHighlightColor(DEFAULT_HIGHLIGHT);
     setPickMode("select");
     setAlwaysFitEnabled(false);
+    setShowRelatedElements(true);
     setSidebarCollapsed(false);
     localStorage.removeItem(STORAGE_KEYS.sceneBackgroundColor);
     localStorage.removeItem(STORAGE_KEYS.highlightColor);
     localStorage.removeItem(STORAGE_KEYS.pickMode);
     localStorage.removeItem(STORAGE_KEYS.alwaysFitEnabled);
+    localStorage.removeItem(STORAGE_KEYS.showRelatedElements);
     localStorage.removeItem(STORAGE_KEYS.sidebarCollapsed);
     setSectionEnabled(false);
     setSectionAxis("y");
@@ -228,14 +306,27 @@ function App() {
     const file = event.target.files?.[0];
     if (file && window.loadIfcFile) {
       window.loadIfcFile(file);
+      const maybePath = (file as File & { path?: unknown }).path;
+      const recentPath =
+        typeof maybePath === "string" && maybePath.trim().length > 0 ? maybePath : URL.createObjectURL(file);
+      const recentName = file.name?.trim().length ? file.name : fileNameFromPath(recentPath);
+      setRecentIfcFiles((prev) => addRecentFile(prev, { name: recentName, path: recentPath }));
     }
     event.target.value = "";
+  }, []);
+
+  const handleOpenRecentIfc = useCallback((path: string, name?: string) => {
+    if (!path || !window.loadIfcFile) return;
+    window.loadIfcFile(path);
+    const nextName = typeof name === "string" && name.trim().length > 0 ? name : fileNameFromPath(path);
+    setRecentIfcFiles((prev) => addRecentFile(prev, { name: nextName, path }));
   }, []);
 
   const handleModelLoaded = useCallback(
     (data: IfcModelData | null) => {
       setModelData(data);
       setSelectedProjectExpressID(null);
+      setSelectedProjectExpressIDs(new Set());
       setVisibleExpressIDs(null);
       setHiddenExpressIDs(new Set());
       setElementInfo(null);
@@ -248,6 +339,7 @@ function App() {
 
   const clearProjectTreeSelection = useCallback(() => {
     setSelectedProjectExpressID(null);
+    setSelectedProjectExpressIDs(new Set());
     setVisibleExpressIDs(null);
     setElementInfo((prev) => (prev?.source === "projectTree" ? null : prev));
   }, []);
@@ -261,6 +353,7 @@ function App() {
     if (expressIDs.length === 0) return;
     setVisibleExpressIDs(new Set(expressIDs));
     setSelectedProjectExpressID(null);
+    setSelectedProjectExpressIDs(new Set());
   }, []);
 
   const handleSetNodeVisibility = useCallback((expressID: number, visible: boolean) => {
@@ -277,23 +370,59 @@ function App() {
     });
   }, [projectTreeIndex]);
 
-  const handleSelectProjectNode = useCallback((node: IfcProjectTreeNode | null) => {
+  const handleSelectProjectNode = useCallback((
+    node: IfcProjectTreeNode | null,
+    options?: { append?: boolean; replaceExpressIDs?: number[] },
+  ) => {
     if (!node) {
       clearProjectTreeSelection();
       return;
     }
 
     if (!projectTreeIndex) return;
-    const subtreeIDs = collectSubtreeExpressIDs(node.expressID, projectTreeIndex);
-    setSelectedProjectExpressID(node.expressID);
-    setVisibleExpressIDs(new Set(subtreeIDs));
+
+    let nextSelected: Set<number>;
+    if (options?.replaceExpressIDs) {
+      nextSelected = new Set(options.replaceExpressIDs);
+    } else {
+      const append = options?.append === true;
+      nextSelected = append ? new Set(selectedProjectExpressIDs) : new Set<number>();
+      if (append && nextSelected.has(node.expressID)) {
+        nextSelected.delete(node.expressID);
+      } else {
+        nextSelected.add(node.expressID);
+      }
+    }
+
+    if (nextSelected.size === 0) {
+      clearProjectTreeSelection();
+      return;
+    }
+
+    let primaryExpressID = node.expressID;
+    if (!nextSelected.has(primaryExpressID)) {
+      const firstRemaining = nextSelected.values().next().value;
+      if (typeof firstRemaining === "number") {
+        primaryExpressID = firstRemaining;
+      }
+    }
+
+    const subtreeIDs = new Set<number>();
+    nextSelected.forEach((selectedID) => {
+      collectSubtreeExpressIDs(selectedID, projectTreeIndex).forEach((id) => subtreeIDs.add(id));
+    });
+
+    setSelectedProjectExpressIDs(nextSelected);
+    setSelectedProjectExpressID(primaryExpressID);
+    setVisibleExpressIDs(subtreeIDs);
     if (modelData) {
-      const fallbackDimensions = modelData.dimensionsByExpressID.get(node.expressID);
+      const primaryNode = projectTreeIndex.nodes.get(primaryExpressID) ?? node;
+      const fallbackDimensions = modelData.dimensionsByExpressID.get(primaryNode.expressID);
       setElementInfo(
         buildElementInfoFromProjectNode(
           modelData.ifcAPI,
           modelData.modelID,
-          node,
+          primaryNode,
           projectTreeIndex,
           fallbackDimensions,
           { unitSymbol: modelData.lengthUnitSymbol },
@@ -301,9 +430,73 @@ function App() {
       );
     }
     if (alwaysFitEnabled && window.fitToExpressIDs) {
-      window.fitToExpressIDs(subtreeIDs);
+      window.fitToExpressIDs(Array.from(subtreeIDs));
     }
-  }, [alwaysFitEnabled, clearProjectTreeSelection, modelData, projectTreeIndex]);
+  }, [alwaysFitEnabled, clearProjectTreeSelection, modelData, projectTreeIndex, selectedProjectExpressIDs]);
+
+  const handleSelectRelatedExpressID = useCallback((
+    expressID: number,
+    options?: { toggle?: boolean; rangeExpressIDs?: number[] },
+  ) => {
+    if (!projectTreeIndex) return;
+    setActiveTab("project");
+
+    const nextSelected = new Set(selectedProjectExpressIDs);
+    if (nextSelected.size === 0 && selectedProjectExpressID !== null) {
+      nextSelected.add(selectedProjectExpressID);
+    }
+
+    if (options?.rangeExpressIDs && options.rangeExpressIDs.length > 0) {
+      options.rangeExpressIDs.forEach((id) => nextSelected.add(id));
+    } else if (options?.toggle) {
+      if (nextSelected.has(expressID)) {
+        nextSelected.delete(expressID);
+      } else {
+        nextSelected.add(expressID);
+      }
+    } else {
+      nextSelected.add(expressID);
+    }
+
+    if (nextSelected.size === 0) {
+      clearProjectTreeSelection();
+      return;
+    }
+
+    const visibleFromSelection = new Set<number>();
+    nextSelected.forEach((selectedID) => {
+      const ids = projectTreeIndex.nodes.has(selectedID)
+        ? collectSubtreeExpressIDs(selectedID, projectTreeIndex)
+        : [selectedID];
+      ids.forEach((id) => visibleFromSelection.add(id));
+    });
+
+    let nextPrimaryExpressID: number;
+    if (selectedProjectExpressID !== null && nextSelected.has(selectedProjectExpressID)) {
+      nextPrimaryExpressID = selectedProjectExpressID;
+    } else if (nextSelected.has(expressID)) {
+      nextPrimaryExpressID = expressID;
+    } else {
+      nextPrimaryExpressID = nextSelected.values().next().value as number;
+    }
+
+    setSelectedProjectExpressIDs(nextSelected);
+    setSelectedProjectExpressID(nextPrimaryExpressID);
+
+    setVisibleExpressIDs((prev) => {
+      if (prev === null) {
+        // Keep unfiltered scene unfiltered; related selections should not force filtering.
+        return null;
+      }
+      return new Set(visibleFromSelection);
+    });
+
+    setHiddenExpressIDs((prev) => {
+      const next = new Set(prev);
+      visibleFromSelection.forEach((id) => next.delete(id));
+      return next;
+    });
+  }, [clearProjectTreeSelection, projectTreeIndex, selectedProjectExpressID, selectedProjectExpressIDs]);
 
   const handleIsolateExpandToParentScope = useCallback((expressID: number) => {
     if (!projectTreeIndex) return;
@@ -313,6 +506,7 @@ function App() {
     const scopeIDs = collectSubtreeExpressIDs(scopeRootID, projectTreeIndex);
     setVisibleExpressIDs(new Set(scopeIDs));
     setSelectedProjectExpressID(expressID);
+    setSelectedProjectExpressIDs(new Set([expressID]));
 
     if (alwaysFitEnabled && window.fitToExpressIDs) {
       window.fitToExpressIDs(scopeIDs);
@@ -320,11 +514,10 @@ function App() {
   }, [alwaysFitEnabled, projectTreeIndex]);
 
   const handleIsolateButtonDoubleClick = useCallback(() => {
-    if (pickMode !== "isolate") return;
-    const sourceExpressID = selectedProjectExpressID ?? elementInfo?.expressID ?? null;
+    const sourceExpressID = selectedProjectExpressID ?? elementInfo?.expressID ?? window.getHighlightedExpressID?.() ?? null;
     if (sourceExpressID === null) return;
     handleIsolateExpandToParentScope(sourceExpressID);
-  }, [elementInfo?.expressID, handleIsolateExpandToParentScope, pickMode, selectedProjectExpressID]);
+  }, [elementInfo?.expressID, handleIsolateExpandToParentScope, selectedProjectExpressID]);
 
   const handleBreadcrumbClick = useCallback((expressID: number) => {
     if (!projectTreeIndex) return;
@@ -342,19 +535,31 @@ function App() {
 
   const handleManualFitProjectNode = useCallback((node: IfcProjectTreeNode | null) => {
     if (!node) return;
-    const saved = window.saveCurrentView?.() ?? false;
-    if (saved) {
-      setCanRestoreView(true);
-    }
     handleFitProjectNode(node);
   }, [handleFitProjectNode]);
 
-  const handleRestoreView = useCallback(() => {
-    const restored = window.restoreSavedView?.() ?? false;
-    if (!restored) {
-      setCanRestoreView(false);
-    }
-  }, []);
+  const getCurrentSourceExpressID = useCallback((): number | null => {
+    return selectedProjectExpressID ?? elementInfo?.expressID ?? window.getHighlightedExpressID?.() ?? null;
+  }, [elementInfo?.expressID, selectedProjectExpressID]);
+
+  const handleZoomParent = useCallback(() => {
+    if (!projectTreeIndex) return;
+    const sourceExpressID = getCurrentSourceExpressID();
+    if (sourceExpressID === null) return;
+    const parentExpressID = projectTreeIndex.parentByExpressID.get(sourceExpressID);
+    if (parentExpressID === undefined) return;
+    const parentNode = projectTreeIndex.nodes.get(parentExpressID);
+    if (!parentNode) return;
+    setActiveTab("project");
+    handleFitProjectNode(parentNode);
+  }, [getCurrentSourceExpressID, handleFitProjectNode, projectTreeIndex]);
+
+  const canZoomParent = useMemo(() => {
+    if (!projectTreeIndex) return false;
+    const sourceExpressID = selectedProjectExpressID ?? elementInfo?.expressID ?? null;
+    if (sourceExpressID === null) return false;
+    return projectTreeIndex.parentByExpressID.has(sourceExpressID);
+  }, [elementInfo?.expressID, projectTreeIndex, selectedProjectExpressID]);
 
   const handleBreadcrumbFit = useCallback((expressID: number) => {
     if (!projectTreeIndex) return;
@@ -366,6 +571,12 @@ function App() {
   const handleElementPicked = useCallback((data: ElementPickData | null) => {
     if (!data) {
       setElementInfo(null);
+      return;
+    }
+
+    // Double-click on mesh expands isolate scope to parent, same behavior as Isolate button double-click.
+    if (data.clickCount >= 2 && projectTreeIndex) {
+      handleIsolateExpandToParentScope(data.expressID);
       return;
     }
 
@@ -412,7 +623,12 @@ function App() {
     }
 
     if (pickMode === "inspect") {
-      setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
+      setElementInfo(
+        buildElementInfoFromPick(data, {
+          unitSymbol: modelData?.lengthUnitSymbol,
+          projectTreeIndex,
+        }),
+      );
       return;
     }
 
@@ -422,12 +638,12 @@ function App() {
         if (alwaysFitEnabled && window.fitToExpressIDs) {
           window.fitToExpressIDs([data.expressID]);
         }
-        setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
-        return;
-      }
-
-      if (data.clickCount >= 2) {
-        handleIsolateExpandToParentScope(data.expressID);
+        setElementInfo(
+          buildElementInfoFromPick(data, {
+            unitSymbol: modelData?.lengthUnitSymbol,
+            projectTreeIndex,
+          }),
+        );
         return;
       }
 
@@ -438,16 +654,27 @@ function App() {
       }
 
       setSelectedProjectExpressID(null);
+      setSelectedProjectExpressIDs(new Set());
       setVisibleExpressIDs(new Set([data.expressID]));
       if (alwaysFitEnabled && window.fitToExpressIDs) {
         window.fitToExpressIDs([data.expressID]);
       }
-      setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData.lengthUnitSymbol }));
+      setElementInfo(
+        buildElementInfoFromPick(data, {
+          unitSymbol: modelData.lengthUnitSymbol,
+          projectTreeIndex,
+        }),
+      );
       return;
     }
 
     if (!modelData || !projectTreeIndex) {
-      setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
+      setElementInfo(
+        buildElementInfoFromPick(data, {
+          unitSymbol: modelData?.lengthUnitSymbol,
+          projectTreeIndex,
+        }),
+      );
       return;
     }
 
@@ -456,6 +683,7 @@ function App() {
 
     if (treeIndex.nodes.has(data.expressID)) {
       setSelectedProjectExpressID(data.expressID);
+      setSelectedProjectExpressIDs(new Set([data.expressID]));
       const node = projectTreeIndex.nodes.get(data.expressID);
       if (node) {
         const fallbackDimensions = modelData.dimensionsByExpressID.get(node.expressID);
@@ -479,7 +707,12 @@ function App() {
     if (alwaysFitEnabled && window.fitToExpressIDs) {
       window.fitToExpressIDs([data.expressID]);
     }
-    setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData.lengthUnitSymbol }));
+    setElementInfo(
+      buildElementInfoFromPick(data, {
+        unitSymbol: modelData.lengthUnitSymbol,
+        projectTreeIndex,
+      }),
+    );
   }, [
     alwaysFitEnabled,
     handleFitProjectNode,
@@ -508,8 +741,17 @@ function App() {
   }, [alwaysFitEnabled]);
 
   useLayoutEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.showRelatedElements, showRelatedElements ? "1" : "0");
+  }, [showRelatedElements]);
+
+  useLayoutEffect(() => {
     localStorage.setItem(STORAGE_KEYS.sidebarCollapsed, sidebarCollapsed ? "1" : "0");
   }, [sidebarCollapsed]);
+
+  useLayoutEffect(() => {
+    const persistentEntries = recentIfcFiles.filter((entry) => !entry.path.startsWith("blob:"));
+    localStorage.setItem(STORAGE_KEYS.recentIfcFiles, JSON.stringify(persistentEntries));
+  }, [recentIfcFiles]);
 
   useLayoutEffect(() => {
     sessionStorage.setItem(SESSION_KEYS.sectionEnabled, sectionEnabled ? "1" : "0");
@@ -551,7 +793,7 @@ function App() {
 
       if (!event.ctrlKey && !event.altKey && !event.metaKey && !event.repeat && event.code === "KeyR") {
         event.preventDefault();
-        handleRestoreView();
+        handleZoomParent();
         return;
       }
 
@@ -585,7 +827,29 @@ function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handlePickModeChange, handleRestoreView, shortcutsOpen]);
+  }, [handlePickModeChange, handleZoomParent, shortcutsOpen]);
+
+  useEffect(() => {
+    setRelatedPanelDismissed(false);
+  }, [elementInfo?.expressID]);
+
+  useEffect(() => {
+    if (!modelData || !projectTreeIndex || !window.fitToExpressIDs) return;
+    if (autoLoadZoomModelIDRef.current === modelData.modelID) return;
+
+    const firstRootID = projectTreeIndex.roots[0];
+    if (firstRootID === undefined) return;
+    const firstRootNode = projectTreeIndex.nodes.get(firstRootID);
+    if (!firstRootNode) return;
+
+    // Initial framing: prefer next hierarchy level over root (project) to avoid overly wide fit.
+    const preferredExpressID = firstRootNode.childExpressIDs[0] ?? firstRootNode.expressID;
+    const zoomScopeIDs = collectSubtreeExpressIDs(preferredExpressID, projectTreeIndex);
+    if (zoomScopeIDs.length === 0) return;
+
+    window.fitToExpressIDs(zoomScopeIDs);
+    autoLoadZoomModelIDRef.current = modelData.modelID;
+  }, [modelData, projectTreeIndex]);
 
   return (
     <div className="app">
@@ -593,6 +857,8 @@ function App() {
         fileInputRef={fileInputRef}
         onOpenIfc={handleOpenIfc}
         onFileChange={handleFileChange}
+        recentIfcFiles={recentIfcFiles}
+        onOpenRecentIfc={handleOpenRecentIfc}
         onOpenHelp={handleOpenHelp}
         pickMode={pickMode}
         onPickModeChange={handlePickModeChange}
@@ -619,6 +885,8 @@ function App() {
         highlightColor={highlightColor}
         onSceneBackgroundColorChange={handleSceneBackgroundColorChange}
         onHighlightColorChange={handleHighlightColorChange}
+        showRelatedElements={showRelatedElements}
+        onShowRelatedElementsChange={setShowRelatedElements}
         onClearUserSettings={handleClearUserSettings}
       />
 
@@ -627,7 +895,19 @@ function App() {
         onClose={() => setElementInfo(null)}
         sidebarCollapsed={sidebarCollapsed}
       />
-      <KeyboardShortcuts isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      {showRelatedElements && !relatedPanelDismissed && (
+        <RelatedElementsPanel
+          relatedElements={elementInfo?.relatedElements ?? []}
+          selectedExpressIDs={selectedProjectExpressIDs}
+          onSelectRelatedExpressID={handleSelectRelatedExpressID}
+          onClose={() => setRelatedPanelDismissed(true)}
+        />
+      )}
+      <KeyboardShortcuts
+        isOpen={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        sidebarCollapsed={sidebarCollapsed}
+      />
 
       <div className="main-container">
         <Sidebar
@@ -637,6 +917,7 @@ function App() {
           projectTreeIndex={projectTreeIndex}
           lengthUnitSymbol={modelData?.lengthUnitSymbol ?? "m"}
           selectedProjectExpressID={selectedProjectExpressID}
+          selectedProjectExpressIDs={selectedProjectExpressIDs}
           isVisibilityFiltered={visibleExpressIDs !== null || hiddenExpressIDs.size > 0}
           visibleCount={effectiveVisibleCount}
           hiddenExpressIDs={hiddenExpressIDs}
@@ -647,8 +928,8 @@ function App() {
           onDisplaySearchResults={handleDisplaySearchResults}
           onFitProjectNode={handleFitProjectNode}
           onManualFitProjectNode={handleManualFitProjectNode}
-          onRestoreView={handleRestoreView}
-          canRestoreView={canRestoreView}
+          onZoomParent={handleZoomParent}
+          canZoomParent={canZoomParent}
           alwaysFitEnabled={alwaysFitEnabled}
           onToggleAlwaysFit={() => setAlwaysFitEnabled((prev) => !prev)}
           onResetVisibility={handleResetVisibility}
@@ -657,6 +938,7 @@ function App() {
         <main className="canvas-container">
           <BabylonScene
             onModelLoaded={handleModelLoaded}
+            onSceneStatsUpdate={setSceneStats}
             visibleExpressIDs={visibleExpressIDs}
             hiddenExpressIDs={hiddenExpressIDs}
             onElementPicked={handleElementPicked}
@@ -674,6 +956,7 @@ function App() {
         <div className="footer-file-info">
           {footerFileInfo ? (
             <>
+              <span className="footer-ifc-schema">{footerFileInfo.ifcSchema}</span>
               <span>{footerFileInfo.name}</span>
               <span className="footer-file-size">{footerFileInfo.sizeMb}</span>
             </>
@@ -688,6 +971,15 @@ function App() {
         >
           Keyboard Shortcuts: Shift+?
         </button>
+        <div className="footer-model-stats" aria-label="Model summary">
+          <span>{`Parts - ${footerFileInfo ? footerFileInfo.partCount : "-"}`}</span>
+          <span>{`Meshes - ${footerFileInfo ? footerFileInfo.meshCount : "-"}`}</span>
+        </div>
+        <div className="footer-status-panel" aria-label="Scene performance metrics">
+          <span>FPS: {sceneStats.fps ?? "-"}</span>
+          <span>Draw Calls: {sceneStats.drawCalls ?? "-"}</span>
+          <span>Memory: {formatFooterMemory(sceneStats.memoryMb)}</span>
+        </div>
       </footer>
     </div>
   );

@@ -849,6 +849,7 @@
 }
 
 .shortcuts-overlay {
+  --shortcuts-canvas-shift: 0px;
   position: fixed;
   inset: 0;
   background-color: rgba(0, 0, 0, 0.45);
@@ -858,17 +859,27 @@
   z-index: 400;
 }
 
+.shortcuts-overlay.sidebar-open .shortcuts-panel {
+  --shortcuts-canvas-shift: calc(300px / 2);
+}
+
+.shortcuts-overlay.sidebar-collapsed .shortcuts-panel {
+  --shortcuts-canvas-shift: calc(40px / 2);
+}
+
 .shortcuts-panel {
-  width: min(560px, calc(100vw - 24px));
-  max-height: min(80vh, 680px);
+  width: auto;
+  max-width: calc(100vw - 32px);
+  max-height: min(88vh, 820px);
   background-color: #16213e;
   border: 1px solid #0f3460;
   border-radius: 8px;
   overflow: hidden;
+  transform: translateX(var(--shortcuts-canvas-shift));
 }
 
 .shortcuts-header {
-  height: 40px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -898,17 +909,17 @@
 }
 
 .shortcuts-content {
-  padding: 12px;
-  max-height: calc(min(80vh, 680px) - 40px);
+  padding: 16px 24px;
+  max-height: calc(min(88vh, 820px) - 44px);
   overflow-y: auto;
 }
 
 .shortcuts-group + .shortcuts-group {
-  margin-top: 12px;
+  margin-top: 18px;
 }
 
 .shortcuts-group h4 {
-  margin: 0 0 8px 0;
+  margin: 0 0 10px 0;
   color: #9fd8ff;
   font-size: 12px;
 }
@@ -916,15 +927,15 @@
 .shortcut-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 4px 0;
+  justify-content: flex-start;
+  gap: 16px;
+  padding: 3px 0;
 }
 
 .shortcut-keys {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .shortcut-key {
@@ -944,6 +955,13 @@
 .shortcut-action {
   color: #cfe6ff;
   font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .shortcuts-overlay.sidebar-open .shortcuts-panel,
+  .shortcuts-overlay.sidebar-collapsed .shortcuts-panel {
+    --shortcuts-canvas-shift: 0px;
+  }
 }
 
 /* Babylon Scene Container */

@@ -12,12 +12,16 @@ interface SidebarProps {
   projectTreeIndex: IfcProjectTreeIndex | null;
   lengthUnitSymbol: string;
   selectedProjectExpressID: number | null;
+  selectedProjectExpressIDs: Set<number>;
   hiddenExpressIDs: Set<number>;
   isVisibilityFiltered: boolean;
   visibleCount: number | null;
   onToggleSidebar: () => void;
   onSetTab: (tab: TabType) => void;
-  onSelectProjectNode: (node: IfcProjectTreeNode | null) => void;
+  onSelectProjectNode: (
+    node: IfcProjectTreeNode | null,
+    options?: { append?: boolean; replaceExpressIDs?: number[] },
+  ) => void;
   onSetNodeVisibility: (expressID: number, visible: boolean) => void;
   onDisplaySearchResults: (expressIDs: number[]) => void;
   onFitProjectNode: (node: IfcProjectTreeNode | null) => void;
@@ -36,6 +40,7 @@ function Sidebar({
   projectTreeIndex,
   lengthUnitSymbol,
   selectedProjectExpressID,
+  selectedProjectExpressIDs,
   hiddenExpressIDs,
   isVisibilityFiltered,
   visibleCount,
@@ -78,6 +83,7 @@ function Sidebar({
             key={projectTreeIndex ? `project-tree-${projectTreeIndex.nodes.size}-${projectTreeIndex.roots.join("-")}` : "project-tree-empty"}
             treeIndex={projectTreeIndex}
             selectedExpressID={selectedProjectExpressID}
+            selectedExpressIDs={selectedProjectExpressIDs}
             hiddenExpressIDs={hiddenExpressIDs}
             lengthUnitSymbol={lengthUnitSymbol}
             onSelectNode={onSelectProjectNode}

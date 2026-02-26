@@ -106,6 +106,7 @@ function App() {
   );
   const [elementInfo, setElementInfo] = useState<ElementInfoData | null>(null);
   const [selectedProjectExpressID, setSelectedProjectExpressID] = useState<number | null>(null);
+  const [selectedProjectExpressIDs, setSelectedProjectExpressIDs] = useState<Set<number>>(new Set());
   const [visibleExpressIDs, setVisibleExpressIDs] = useState<Set<number> | null>(null);
   const [hiddenExpressIDs, setHiddenExpressIDs] = useState<Set<number>>(new Set());
   const [alwaysFitEnabled, setAlwaysFitEnabled] = useState<boolean>(() =>
@@ -236,6 +237,7 @@ function App() {
     (data: IfcModelData | null) => {
       setModelData(data);
       setSelectedProjectExpressID(null);
+      setSelectedProjectExpressIDs(new Set());
       setVisibleExpressIDs(null);
       setHiddenExpressIDs(new Set());
       setElementInfo(null);
@@ -248,6 +250,7 @@ function App() {
 
   const clearProjectTreeSelection = useCallback(() => {
     setSelectedProjectExpressID(null);
+    setSelectedProjectExpressIDs(new Set());
     setVisibleExpressIDs(null);
     setElementInfo((prev) => (prev?.source === "projectTree" ? null : prev));
   }, []);
@@ -261,6 +264,7 @@ function App() {
     if (expressIDs.length === 0) return;
     setVisibleExpressIDs(new Set(expressIDs));
     setSelectedProjectExpressID(null);
+    setSelectedProjectExpressIDs(new Set());
   }, []);
 
   const handleSetNodeVisibility = useCallback((expressID: number, visible: boolean) => {
@@ -277,23 +281,59 @@ function App() {
     });
   }, [projectTreeIndex]);
 
-  const handleSelectProjectNode = useCallback((node: IfcProjectTreeNode | null) => {
+  const handleSelectProjectNode = useCallback((
+    node: IfcProjectTreeNode | null,
+    options?: { append?: boolean; replaceExpressIDs?: number[] },
+  ) => {
     if (!node) {
       clearProjectTreeSelection();
       return;
     }
 
     if (!projectTreeIndex) return;
-    const subtreeIDs = collectSubtreeExpressIDs(node.expressID, projectTreeIndex);
-    setSelectedProjectExpressID(node.expressID);
-    setVisibleExpressIDs(new Set(subtreeIDs));
+
+    let nextSelected: Set<number>;
+    if (options?.replaceExpressIDs) {
+      nextSelected = new Set(options.replaceExpressIDs);
+    } else {
+      const append = options?.append === true;
+      nextSelected = append ? new Set(selectedProjectExpressIDs) : new Set<number>();
+      if (append && nextSelected.has(node.expressID)) {
+        nextSelected.delete(node.expressID);
+      } else {
+        nextSelected.add(node.expressID);
+      }
+    }
+
+    if (nextSelected.size === 0) {
+      clearProjectTreeSelection();
+      return;
+    }
+
+    let primaryExpressID = node.expressID;
+    if (!nextSelected.has(primaryExpressID)) {
+      const firstRemaining = nextSelected.values().next().value;
+      if (typeof firstRemaining === "number") {
+        primaryExpressID = firstRemaining;
+      }
+    }
+
+    const subtreeIDs = new Set<number>();
+    nextSelected.forEach((selectedID) => {
+      collectSubtreeExpressIDs(selectedID, projectTreeIndex).forEach((id) => subtreeIDs.add(id));
+    });
+
+    setSelectedProjectExpressIDs(nextSelected);
+    setSelectedProjectExpressID(primaryExpressID);
+    setVisibleExpressIDs(subtreeIDs);
     if (modelData) {
-      const fallbackDimensions = modelData.dimensionsByExpressID.get(node.expressID);
+      const primaryNode = projectTreeIndex.nodes.get(primaryExpressID) ?? node;
+      const fallbackDimensions = modelData.dimensionsByExpressID.get(primaryNode.expressID);
       setElementInfo(
         buildElementInfoFromProjectNode(
           modelData.ifcAPI,
           modelData.modelID,
-          node,
+          primaryNode,
           projectTreeIndex,
           fallbackDimensions,
           { unitSymbol: modelData.lengthUnitSymbol },
@@ -301,9 +341,9 @@ function App() {
       );
     }
     if (alwaysFitEnabled && window.fitToExpressIDs) {
-      window.fitToExpressIDs(subtreeIDs);
+      window.fitToExpressIDs(Array.from(subtreeIDs));
     }
-  }, [alwaysFitEnabled, clearProjectTreeSelection, modelData, projectTreeIndex]);
+  }, [alwaysFitEnabled, clearProjectTreeSelection, modelData, projectTreeIndex, selectedProjectExpressIDs]);
 
   const handleIsolateExpandToParentScope = useCallback((expressID: number) => {
     if (!projectTreeIndex) return;
@@ -313,6 +353,7 @@ function App() {
     const scopeIDs = collectSubtreeExpressIDs(scopeRootID, projectTreeIndex);
     setVisibleExpressIDs(new Set(scopeIDs));
     setSelectedProjectExpressID(expressID);
+    setSelectedProjectExpressIDs(new Set([expressID]));
 
     if (alwaysFitEnabled && window.fitToExpressIDs) {
       window.fitToExpressIDs(scopeIDs);
@@ -438,6 +479,7 @@ function App() {
       }
 
       setSelectedProjectExpressID(null);
+      setSelectedProjectExpressIDs(new Set());
       setVisibleExpressIDs(new Set([data.expressID]));
       if (alwaysFitEnabled && window.fitToExpressIDs) {
         window.fitToExpressIDs([data.expressID]);
@@ -456,6 +498,7 @@ function App() {
 
     if (treeIndex.nodes.has(data.expressID)) {
       setSelectedProjectExpressID(data.expressID);
+      setSelectedProjectExpressIDs(new Set([data.expressID]));
       const node = projectTreeIndex.nodes.get(data.expressID);
       if (node) {
         const fallbackDimensions = modelData.dimensionsByExpressID.get(node.expressID);
@@ -627,7 +670,11 @@ function App() {
         onClose={() => setElementInfo(null)}
         sidebarCollapsed={sidebarCollapsed}
       />
-      <KeyboardShortcuts isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <KeyboardShortcuts
+        isOpen={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        sidebarCollapsed={sidebarCollapsed}
+      />
 
       <div className="main-container">
         <Sidebar
@@ -637,6 +684,7 @@ function App() {
           projectTreeIndex={projectTreeIndex}
           lengthUnitSymbol={modelData?.lengthUnitSymbol ?? "m"}
           selectedProjectExpressID={selectedProjectExpressID}
+          selectedProjectExpressIDs={selectedProjectExpressIDs}
           isVisibilityFiltered={visibleExpressIDs !== null || hiddenExpressIDs.size > 0}
           visibleCount={effectiveVisibleCount}
           hiddenExpressIDs={hiddenExpressIDs}

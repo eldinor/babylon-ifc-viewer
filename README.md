@@ -14,6 +14,13 @@ Lightweight IFC viewer built with `React + TypeScript + Vite + Babylon.js + web-
   - per-field copy
   - `Copy All` in `Text | JSON | Markdown table` formats.
 - Dedicated `Related Elements` panel on the right (below header), with clickable related items.
+- Related Elements selection supports:
+  - click on selected item to deselect
+  - `Ctrl+Click` to toggle
+  - `Shift+Click` to select range.
+- User setting: `Show related elements` (enabled by default).
+- Camera action `Zoom Parent` (`R`) to fit the parent scope of current element without changing Project Tree selection.
+- App title shows build version from `package.json`.
 - Keyboard shortcuts dialog closes on `Esc` and on outside click.
 - Built-in user guide: `/user-guide.html` (also available from the header Help icon).
 

@@ -173,7 +173,6 @@ function App() {
   const [alwaysFitEnabled, setAlwaysFitEnabled] = useState<boolean>(() =>
     readStorageBool(STORAGE_KEYS.alwaysFitEnabled, false),
   );
-  const [canRestoreView, setCanRestoreView] = useState(false);
   const [measureStart, setMeasureStart] = useState<{ expressID: number; center: { x: number; y: number; z: number } } | null>(null);
   const [measurePinnedFirstExpressID, setMeasurePinnedFirstExpressID] = useState<number | null>(null);
   const [sceneBackgroundColor, setSceneBackgroundColor] = useState<string>(() => {
@@ -526,19 +525,31 @@ function App() {
 
   const handleManualFitProjectNode = useCallback((node: IfcProjectTreeNode | null) => {
     if (!node) return;
-    const saved = window.saveCurrentView?.() ?? false;
-    if (saved) {
-      setCanRestoreView(true);
-    }
     handleFitProjectNode(node);
   }, [handleFitProjectNode]);
 
-  const handleRestoreView = useCallback(() => {
-    const restored = window.restoreSavedView?.() ?? false;
-    if (!restored) {
-      setCanRestoreView(false);
-    }
-  }, []);
+  const getCurrentSourceExpressID = useCallback((): number | null => {
+    return selectedProjectExpressID ?? elementInfo?.expressID ?? window.getHighlightedExpressID?.() ?? null;
+  }, [elementInfo?.expressID, selectedProjectExpressID]);
+
+  const handleZoomParent = useCallback(() => {
+    if (!projectTreeIndex) return;
+    const sourceExpressID = getCurrentSourceExpressID();
+    if (sourceExpressID === null) return;
+    const parentExpressID = projectTreeIndex.parentByExpressID.get(sourceExpressID);
+    if (parentExpressID === undefined) return;
+    const parentNode = projectTreeIndex.nodes.get(parentExpressID);
+    if (!parentNode) return;
+    setActiveTab("project");
+    handleFitProjectNode(parentNode);
+  }, [getCurrentSourceExpressID, handleFitProjectNode, projectTreeIndex]);
+
+  const canZoomParent = useMemo(() => {
+    if (!projectTreeIndex) return false;
+    const sourceExpressID = selectedProjectExpressID ?? elementInfo?.expressID ?? null;
+    if (sourceExpressID === null) return false;
+    return projectTreeIndex.parentByExpressID.has(sourceExpressID);
+  }, [elementInfo?.expressID, projectTreeIndex, selectedProjectExpressID]);
 
   const handleBreadcrumbFit = useCallback((expressID: number) => {
     if (!projectTreeIndex) return;
@@ -772,7 +783,7 @@ function App() {
 
       if (!event.ctrlKey && !event.altKey && !event.metaKey && !event.repeat && event.code === "KeyR") {
         event.preventDefault();
-        handleRestoreView();
+        handleZoomParent();
         return;
       }
 
@@ -806,7 +817,7 @@ function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handlePickModeChange, handleRestoreView, shortcutsOpen]);
+  }, [handlePickModeChange, handleZoomParent, shortcutsOpen]);
 
   useEffect(() => {
     setRelatedPanelDismissed(false);
@@ -889,8 +900,8 @@ function App() {
           onDisplaySearchResults={handleDisplaySearchResults}
           onFitProjectNode={handleFitProjectNode}
           onManualFitProjectNode={handleManualFitProjectNode}
-          onRestoreView={handleRestoreView}
-          canRestoreView={canRestoreView}
+          onZoomParent={handleZoomParent}
+          canZoomParent={canZoomParent}
           alwaysFitEnabled={alwaysFitEnabled}
           onToggleAlwaysFit={() => setAlwaysFitEnabled((prev) => !prev)}
           onResetVisibility={handleResetVisibility}

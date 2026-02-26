@@ -13,8 +13,8 @@ interface ProjectTabProps {
   onDisplaySearchResults: (expressIDs: number[]) => void;
   onFitNode: (node: IfcProjectTreeNode | null) => void;
   onManualFitNode: (node: IfcProjectTreeNode | null) => void;
-  onRestoreView: () => void;
-  canRestoreView: boolean;
+  onZoomParent: () => void;
+  canZoomParent: boolean;
   alwaysFitEnabled: boolean;
   onToggleAlwaysFit: () => void;
 }
@@ -35,8 +35,8 @@ function ProjectTab({
   onDisplaySearchResults,
   onFitNode,
   onManualFitNode,
-  onRestoreView,
-  canRestoreView,
+  onZoomParent,
+  canZoomParent,
   alwaysFitEnabled,
   onToggleAlwaysFit,
 }: ProjectTabProps) {
@@ -361,9 +361,9 @@ function ProjectTab({
           <button
             type="button"
             className="tree-restore-btn"
-            title="Restore view before manual fit"
-            onClick={onRestoreView}
-            disabled={!canRestoreView}
+            title="Zoom to parent element (R)"
+            onClick={onZoomParent}
+            disabled={!canZoomParent}
           >
             <RestoreViewIcon />
           </button>

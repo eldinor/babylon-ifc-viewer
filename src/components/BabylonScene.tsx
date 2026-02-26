@@ -234,7 +234,7 @@ const [ifcReady, setIfcReady] = useState(false);
 
     // Create lights for PBR
     const light = new HemisphericLight('light', new Vector3(0, 1, 0), scene)
-    light.intensity = 0.8
+    light.intensity = 0.6
     light.groundColor = new Color3(0.3, 0.3, 0.3)
 
     // Render loop
@@ -500,7 +500,7 @@ const [ifcReady, setIfcReady] = useState(false);
         verbose: false,
         freezeAfterBuild: true,
         releaseRawPartsAfterBuild:true,
-        usePBRMaterials:true
+        usePBRMaterials:false
       })
 
       // Position camera to fit model

@@ -96,7 +96,7 @@ function AppHeader({
 
   return (
     <header className="header">
-      <span className="header-title">Babylon.js IFC Viewer</span>
+      <span className="header-title">{`Babylon.js IFC Viewer v${__APP_VERSION__}`}</span>
       <span className="header-breadcrumbs">
         {breadcrumbs.length === 0 ? (
           <span className="header-breadcrumb-placeholder">No selection</span>

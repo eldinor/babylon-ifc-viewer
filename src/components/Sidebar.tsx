@@ -26,8 +26,8 @@ interface SidebarProps {
   onDisplaySearchResults: (expressIDs: number[]) => void;
   onFitProjectNode: (node: IfcProjectTreeNode | null) => void;
   onManualFitProjectNode: (node: IfcProjectTreeNode | null) => void;
-  onRestoreView: () => void;
-  canRestoreView: boolean;
+  onZoomParent: () => void;
+  canZoomParent: boolean;
   alwaysFitEnabled: boolean;
   onToggleAlwaysFit: () => void;
   onResetVisibility: () => void;
@@ -51,8 +51,8 @@ function Sidebar({
   onDisplaySearchResults,
   onFitProjectNode,
   onManualFitProjectNode,
-  onRestoreView,
-  canRestoreView,
+  onZoomParent,
+  canZoomParent,
   alwaysFitEnabled,
   onToggleAlwaysFit,
   onResetVisibility,
@@ -91,8 +91,8 @@ function Sidebar({
             onDisplaySearchResults={onDisplaySearchResults}
             onFitNode={onFitProjectNode}
             onManualFitNode={onManualFitProjectNode}
-            onRestoreView={onRestoreView}
-            canRestoreView={canRestoreView}
+            onZoomParent={onZoomParent}
+            canZoomParent={canZoomParent}
             alwaysFitEnabled={alwaysFitEnabled}
             onToggleAlwaysFit={onToggleAlwaysFit}
           />

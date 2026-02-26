@@ -21,7 +21,7 @@ const GROUPS: Array<{ title: string; items: ShortcutItem[] }> = [
     title: "Camera",
     items: [
       { keys: ["F"], action: "Fit selected element/subtree" },
-      { keys: ["R"], action: "Restore camera view saved before manual fit" },
+      { keys: ["R"], action: "Zoom to parent element" },
     ],
   },
   {

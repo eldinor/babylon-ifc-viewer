@@ -1104,14 +1104,23 @@
 }
 
 /* Open IFC Button */
+.open-ifc-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid #1a1a2e;
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: #0f3460;
+}
+
 .open-ifc-btn {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background-color: #0f3460;
-  border: 1px solid #1a1a2e;
-  border-radius: 4px;
+  background-color: transparent;
+  border: none;
   color: white;
   font-size: 12px;
   cursor: pointer;
@@ -1120,6 +1129,66 @@
 
 .open-ifc-btn:hover {
   background-color: #1a1a2e;
+}
+
+.recent-ifc-wrap {
+  position: relative;
+}
+
+.recent-ifc-btn {
+  height: 30px;
+  padding: 0 10px;
+  background-color: transparent;
+  border: none;
+  border-left: 1px solid #1a1a2e;
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.recent-ifc-btn:hover,
+.recent-ifc-btn.active {
+  background-color: #1a1a2e;
+}
+
+.recent-ifc-menu {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  width: 260px;
+  max-height: 280px;
+  overflow-y: auto;
+  background-color: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+  z-index: 20;
+  padding: 6px;
+}
+
+.recent-ifc-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #d8eaff;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-ifc-item:hover {
+  background-color: #1f5d8f;
+}
+
+.recent-ifc-empty {
+  color: #8ba3be;
+  font-size: 11px;
+  padding: 8px;
 }
 
 /* Element Info Panel - Hidden div that shows when element is picked */
@@ -1222,6 +1291,93 @@
   overflow-y: auto;
 }
 
+.related-elements-panel {
+  position: absolute;
+  top: 40px;
+  right: 8px;
+  width: 360px;
+  max-height: calc(100% - 108px);
+  background-color: #0f3460;
+  border: 1px solid #16213e;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+
+.related-elements-header {
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid #16213e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #16213e;
+  border-radius: 8px 8px 0 0;
+}
+
+.related-elements-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #4fc3f7;
+}
+
+.related-elements-count {
+  font-size: 11px;
+  color: #9fb5cb;
+}
+
+.related-elements-content {
+  padding: 10px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.related-elements-item {
+  width: 100%;
+  border: 1px solid #1a1a2e;
+  border-radius: 4px;
+  background-color: #0f3460;
+  color: #d8eaff;
+  font-size: 11px;
+  padding: 6px 8px;
+  text-align: left;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  cursor: pointer;
+}
+
+.related-elements-item:hover {
+  background-color: #1a1a2e;
+}
+
+.related-elements-relation {
+  color: #8dc8ef;
+}
+
+.related-elements-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-elements-meta {
+  color: #9fb5cb;
+  text-align: right;
+}
+
+.related-elements-id {
+  grid-column: 1 / -1;
+  color: #7fa1bf;
+}
+
 /* Sidebar positioning adjustment when element info panel is visible */
 .sidebar:not(.collapsed) ~ .main-container {
   margin-left: 300px; /* Make space for element info panel */
@@ -1246,6 +1402,16 @@
     right: 10px;
     width: auto;
     height: 30vh;
+    z-index: 200;
+  }
+
+  .related-elements-panel {
+    position: fixed;
+    top: calc(40px + 30vh + 8px);
+    left: 10px;
+    right: 10px;
+    width: auto;
+    max-height: 24vh;
     z-index: 200;
   }
   

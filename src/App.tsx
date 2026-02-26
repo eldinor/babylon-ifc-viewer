@@ -4,6 +4,7 @@ import "./App.css";
 import BabylonScene, { type IfcModelData } from "./components/BabylonScene";
 import AppHeader from "./components/AppHeader";
 import ElementInfoPanel from "./components/ElementInfoPanel";
+import RelatedElementsPanel from "./components/RelatedElementsPanel";
 import Sidebar from "./components/Sidebar";
 import KeyboardShortcuts from "./components/KeyboardShortcuts";
 import { useModelData } from "./hooks/useModelData";
@@ -19,6 +20,7 @@ const STORAGE_KEYS = {
   pickMode: "viewer.pickMode",
   alwaysFitEnabled: "viewer.alwaysFitEnabled",
   sidebarCollapsed: "viewer.sidebarCollapsed",
+  recentIfcFiles: "viewer.recentIfcFiles",
 } as const;
 
 const SESSION_KEYS = {
@@ -30,6 +32,12 @@ const SESSION_KEYS = {
 
 const DEFAULT_SCENE_BACKGROUND = "#18003d";
 const DEFAULT_HIGHLIGHT = "#008080";
+const MAX_RECENT_IFC_FILES = 8;
+
+interface RecentIfcFile {
+  name: string;
+  path: string;
+}
 
 function isHexColor(value: string | null): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
@@ -84,6 +92,48 @@ function getPickedCenter(data: ElementPickData): { x: number; y: number; z: numb
   return { x: center.x, y: center.y, z: center.z };
 }
 
+function readRecentIfcFiles(): RecentIfcFile[] {
+  const raw = localStorage.getItem(STORAGE_KEYS.recentIfcFiles);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (item): item is RecentIfcFile =>
+          !!item &&
+          typeof item === "object" &&
+          typeof (item as { name?: unknown }).name === "string" &&
+          typeof (item as { path?: unknown }).path === "string" &&
+          (item as { path: string }).path.trim().length > 0,
+      )
+      .filter((item) => !item.path.startsWith("blob:"))
+      .slice(0, MAX_RECENT_IFC_FILES);
+  } catch {
+    return [];
+  }
+}
+
+function fileNameFromPath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) return "Unknown.ifc";
+  const normalized = trimmed.replace(/\\/g, "/");
+  const parts = normalized.split("/");
+  const last = parts[parts.length - 1]?.trim();
+  return last && last.length > 0 ? last : trimmed;
+}
+
+function addRecentFile(
+  previous: RecentIfcFile[],
+  nextEntry: RecentIfcFile,
+): RecentIfcFile[] {
+  const next: RecentIfcFile[] = [nextEntry];
+  previous.forEach((entry) => {
+    if (entry.path !== nextEntry.path) next.push(entry);
+  });
+  return next.slice(0, MAX_RECENT_IFC_FILES);
+}
+
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectTreeIndexRef = useRef<IfcProjectTreeIndex | null>(null);
@@ -124,6 +174,7 @@ function App() {
     return isHexColor(stored) ? stored : DEFAULT_HIGHLIGHT;
   });
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [recentIfcFiles, setRecentIfcFiles] = useState<RecentIfcFile[]>(() => readRecentIfcFiles());
 
   const handleModelCleared = useCallback(() => {
     setElementInfo(null);
@@ -229,8 +280,20 @@ function App() {
     const file = event.target.files?.[0];
     if (file && window.loadIfcFile) {
       window.loadIfcFile(file);
+      const maybePath = (file as File & { path?: unknown }).path;
+      const recentPath =
+        typeof maybePath === "string" && maybePath.trim().length > 0 ? maybePath : URL.createObjectURL(file);
+      const recentName = file.name?.trim().length ? file.name : fileNameFromPath(recentPath);
+      setRecentIfcFiles((prev) => addRecentFile(prev, { name: recentName, path: recentPath }));
     }
     event.target.value = "";
+  }, []);
+
+  const handleOpenRecentIfc = useCallback((path: string, name?: string) => {
+    if (!path || !window.loadIfcFile) return;
+    window.loadIfcFile(path);
+    const nextName = typeof name === "string" && name.trim().length > 0 ? name : fileNameFromPath(path);
+    setRecentIfcFiles((prev) => addRecentFile(prev, { name: nextName, path }));
   }, []);
 
   const handleModelLoaded = useCallback(
@@ -345,6 +408,43 @@ function App() {
     }
   }, [alwaysFitEnabled, clearProjectTreeSelection, modelData, projectTreeIndex, selectedProjectExpressIDs]);
 
+  const handleSelectRelatedExpressID = useCallback((expressID: number) => {
+    if (!projectTreeIndex) return;
+    setActiveTab("project");
+    const relatedIDs = projectTreeIndex.nodes.has(expressID)
+      ? collectSubtreeExpressIDs(expressID, projectTreeIndex)
+      : [expressID];
+
+    setSelectedProjectExpressIDs((prev) => {
+      const next = new Set(prev);
+      if (next.size === 0) {
+        if (selectedProjectExpressIDs.size > 0) {
+          selectedProjectExpressIDs.forEach((id) => next.add(id));
+        } else if (selectedProjectExpressID !== null) {
+          next.add(selectedProjectExpressID);
+        }
+      }
+      next.add(expressID);
+      return next;
+    });
+
+    setVisibleExpressIDs((prev) => {
+      if (prev === null) {
+        // Keep unfiltered scene unfiltered; related element is already visible.
+        return null;
+      }
+      const next = new Set(prev);
+      relatedIDs.forEach((id) => next.add(id));
+      return next;
+    });
+
+    setHiddenExpressIDs((prev) => {
+      const next = new Set(prev);
+      relatedIDs.forEach((id) => next.delete(id));
+      return next;
+    });
+  }, [projectTreeIndex, selectedProjectExpressID, selectedProjectExpressIDs]);
+
   const handleIsolateExpandToParentScope = useCallback((expressID: number) => {
     if (!projectTreeIndex) return;
 
@@ -453,7 +553,12 @@ function App() {
     }
 
     if (pickMode === "inspect") {
-      setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
+      setElementInfo(
+        buildElementInfoFromPick(data, {
+          unitSymbol: modelData?.lengthUnitSymbol,
+          projectTreeIndex,
+        }),
+      );
       return;
     }
 
@@ -463,7 +568,12 @@ function App() {
         if (alwaysFitEnabled && window.fitToExpressIDs) {
           window.fitToExpressIDs([data.expressID]);
         }
-        setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
+        setElementInfo(
+          buildElementInfoFromPick(data, {
+            unitSymbol: modelData?.lengthUnitSymbol,
+            projectTreeIndex,
+          }),
+        );
         return;
       }
 
@@ -484,12 +594,22 @@ function App() {
       if (alwaysFitEnabled && window.fitToExpressIDs) {
         window.fitToExpressIDs([data.expressID]);
       }
-      setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData.lengthUnitSymbol }));
+      setElementInfo(
+        buildElementInfoFromPick(data, {
+          unitSymbol: modelData.lengthUnitSymbol,
+          projectTreeIndex,
+        }),
+      );
       return;
     }
 
     if (!modelData || !projectTreeIndex) {
-      setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData?.lengthUnitSymbol }));
+      setElementInfo(
+        buildElementInfoFromPick(data, {
+          unitSymbol: modelData?.lengthUnitSymbol,
+          projectTreeIndex,
+        }),
+      );
       return;
     }
 
@@ -522,7 +642,12 @@ function App() {
     if (alwaysFitEnabled && window.fitToExpressIDs) {
       window.fitToExpressIDs([data.expressID]);
     }
-    setElementInfo(buildElementInfoFromPick(data, { unitSymbol: modelData.lengthUnitSymbol }));
+    setElementInfo(
+      buildElementInfoFromPick(data, {
+        unitSymbol: modelData.lengthUnitSymbol,
+        projectTreeIndex,
+      }),
+    );
   }, [
     alwaysFitEnabled,
     handleFitProjectNode,
@@ -553,6 +678,11 @@ function App() {
   useLayoutEffect(() => {
     localStorage.setItem(STORAGE_KEYS.sidebarCollapsed, sidebarCollapsed ? "1" : "0");
   }, [sidebarCollapsed]);
+
+  useLayoutEffect(() => {
+    const persistentEntries = recentIfcFiles.filter((entry) => !entry.path.startsWith("blob:"));
+    localStorage.setItem(STORAGE_KEYS.recentIfcFiles, JSON.stringify(persistentEntries));
+  }, [recentIfcFiles]);
 
   useLayoutEffect(() => {
     sessionStorage.setItem(SESSION_KEYS.sectionEnabled, sectionEnabled ? "1" : "0");
@@ -636,6 +766,8 @@ function App() {
         fileInputRef={fileInputRef}
         onOpenIfc={handleOpenIfc}
         onFileChange={handleFileChange}
+        recentIfcFiles={recentIfcFiles}
+        onOpenRecentIfc={handleOpenRecentIfc}
         onOpenHelp={handleOpenHelp}
         pickMode={pickMode}
         onPickModeChange={handlePickModeChange}
@@ -669,6 +801,10 @@ function App() {
         elementInfo={elementInfo}
         onClose={() => setElementInfo(null)}
         sidebarCollapsed={sidebarCollapsed}
+      />
+      <RelatedElementsPanel
+        relatedElements={elementInfo?.relatedElements ?? []}
+        onSelectRelatedExpressID={handleSelectRelatedExpressID}
       />
       <KeyboardShortcuts
         isOpen={shortcutsOpen}

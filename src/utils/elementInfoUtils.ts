@@ -1,6 +1,6 @@
 import * as WebIFC from "web-ifc";
 import type { IfcProjectTreeIndex, IfcProjectTreeNode } from "./projectTreeUtils";
-import type { ElementInfoData, ElementInfoField } from "../types/elementInfo";
+import type { ElementInfoData, ElementInfoField, RelatedElementItem } from "../types/elementInfo";
 import type { ElementPickData } from "./pickingUtils";
 
 interface IfcLineLike {
@@ -222,7 +222,50 @@ function getSpatialContainerLabel(expressID: number, index: IfcProjectTreeIndex)
   return "-";
 }
 
-export function buildElementInfoFromPick(data: ElementPickData, options?: DimensionFieldOptions): ElementInfoData {
+function createRelatedElementsFromIndex(
+  expressID: number,
+  index: IfcProjectTreeIndex,
+  maxItems = 24,
+): RelatedElementItem[] {
+  const related: RelatedElementItem[] = [];
+  const seen = new Set<number>();
+  const push = (id: number, relation: string) => {
+    if (seen.has(id)) return;
+    const node = index.nodes.get(id);
+    if (!node) return;
+    seen.add(id);
+    related.push({
+      expressID: node.expressID,
+      name: node.name,
+      typeName: node.typeName,
+      relation,
+    });
+  };
+
+  const parentID = index.parentByExpressID.get(expressID);
+  if (parentID !== undefined) {
+    push(parentID, "Parent");
+    const parentNode = index.nodes.get(parentID);
+    if (parentNode) {
+      parentNode.childExpressIDs
+        .filter((childID) => childID !== expressID)
+        .slice(0, 8)
+        .forEach((siblingID) => push(siblingID, "Sibling"));
+    }
+  }
+
+  const node = index.nodes.get(expressID);
+  if (node) {
+    node.childExpressIDs.slice(0, 12).forEach((childID) => push(childID, "Child"));
+  }
+
+  return related.slice(0, maxItems);
+}
+
+export function buildElementInfoFromPick(
+  data: ElementPickData,
+  options?: DimensionFieldOptions & { projectTreeIndex?: IfcProjectTreeIndex | null },
+): ElementInfoData {
   const line = (data.element ?? {}) as IfcLineLike;
   const semanticDimensions = extractIfcDimensions(line);
   const bboxDimensions = getMeshBoundingDimensions(data);
@@ -243,6 +286,9 @@ export function buildElementInfoFromPick(data: ElementPickData, options?: Dimens
     source: "scene",
     expressID: data.expressID,
     fields,
+    relatedElements: options?.projectTreeIndex
+      ? createRelatedElementsFromIndex(data.expressID, options.projectTreeIndex)
+      : undefined,
   };
 }
 
@@ -286,5 +332,6 @@ export function buildElementInfoFromProjectNode(
     source: "projectTree",
     expressID: node.expressID,
     fields,
+    relatedElements: createRelatedElementsFromIndex(node.expressID, index),
   };
 }

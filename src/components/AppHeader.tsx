@@ -12,6 +12,8 @@ interface AppHeaderProps {
   fileInputRef: RefObject<HTMLInputElement | null>;
   onOpenIfc: () => void;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  recentIfcFiles: Array<{ name: string; path: string }>;
+  onOpenRecentIfc: (path: string, name?: string) => void;
   onOpenHelp: () => void;
   pickMode: PickMode;
   onPickModeChange: (mode: PickMode) => void;
@@ -40,6 +42,8 @@ function AppHeader({
   fileInputRef,
   onOpenIfc,
   onFileChange,
+  recentIfcFiles,
+  onOpenRecentIfc,
   onOpenHelp,
   pickMode,
   onPickModeChange,
@@ -65,22 +69,26 @@ function AppHeader({
 }: AppHeaderProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [clipOpen, setClipOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   const clipRef = useRef<HTMLDivElement>(null);
+  const recentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!settingsOpen && !clipOpen) return;
+    if (!settingsOpen && !clipOpen && !recentOpen) return;
     const handleOutsideClick = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
       if (settingsRef.current?.contains(target)) return;
       if (clipRef.current?.contains(target)) return;
+      if (recentRef.current?.contains(target)) return;
       setSettingsOpen(false);
       setClipOpen(false);
+      setRecentOpen(false);
     };
     document.addEventListener("mousedown", handleOutsideClick);
     return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, [clipOpen, settingsOpen]);
+  }, [clipOpen, recentOpen, settingsOpen]);
 
   return (
     <header className="header">
@@ -242,10 +250,44 @@ function AppHeader({
             </div>
           </div>
         </div>
-        <button className="open-ifc-btn" onClick={onOpenIfc} title="Open IFC File">
-          <FolderOpenIcon />
-          <span>Open IFC</span>
-        </button>
+        <div className="open-ifc-controls">
+          <button className="open-ifc-btn" onClick={onOpenIfc} title="Open IFC File">
+            <FolderOpenIcon />
+            <span>Open IFC</span>
+          </button>
+          <div className="recent-ifc-wrap" ref={recentRef}>
+            <button
+              type="button"
+              className={`recent-ifc-btn ${recentOpen ? "active" : ""}`}
+              onClick={() => setRecentOpen((prev) => !prev)}
+              title="Open a recently loaded IFC file"
+            >
+              Recent
+            </button>
+            {recentOpen && (
+              <div className="recent-ifc-menu">
+                {recentIfcFiles.length === 0 ? (
+                  <div className="recent-ifc-empty">No recent files</div>
+                ) : (
+                  recentIfcFiles.map((entry) => (
+                    <button
+                      key={entry.path}
+                      type="button"
+                      className="recent-ifc-item"
+                      title={entry.path}
+                      onClick={() => {
+                        onOpenRecentIfc(entry.path, entry.name);
+                        setRecentOpen(false);
+                      }}
+                    >
+                      {entry.name}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
         <div className="header-settings-wrap" ref={settingsRef}>
           <button
             className={`header-icon-btn ${settingsOpen ? "active" : ""}`}

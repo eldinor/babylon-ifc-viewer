@@ -22,6 +22,7 @@ const STORAGE_KEYS = {
   sidebarCollapsed: "viewer.sidebarCollapsed",
   recentIfcFiles: "viewer.recentIfcFiles",
   showRelatedElements: "viewer.showRelatedElements",
+  showMaterialElementsMode: "viewer.showMaterialElementsMode",
 } as const;
 
 const SESSION_KEYS = {
@@ -196,7 +197,9 @@ function App() {
   );
   const [recentIfcFiles, setRecentIfcFiles] = useState<RecentIfcFile[]>(() => readRecentIfcFiles());
   const [sceneStats, setSceneStats] = useState<SceneStats>({ fps: null, drawCalls: null, memoryMb: null });
-  const [showMaterialElementsMode, setShowMaterialElementsMode] = useState(false);
+  const [showMaterialElementsMode, setShowMaterialElementsMode] = useState<boolean>(() =>
+    readStorageBool(STORAGE_KEYS.showMaterialElementsMode, false),
+  );
   const [selectedMaterialExpressIDs, setSelectedMaterialExpressIDs] = useState<Set<number>>(new Set());
 
   const handleModelCleared = useCallback(() => {
@@ -292,12 +295,14 @@ function App() {
     setPickMode("select");
     setAlwaysFitEnabled(false);
     setShowRelatedElements(true);
+    setShowMaterialElementsMode(false);
     setSidebarCollapsed(false);
     localStorage.removeItem(STORAGE_KEYS.sceneBackgroundColor);
     localStorage.removeItem(STORAGE_KEYS.highlightColor);
     localStorage.removeItem(STORAGE_KEYS.pickMode);
     localStorage.removeItem(STORAGE_KEYS.alwaysFitEnabled);
     localStorage.removeItem(STORAGE_KEYS.showRelatedElements);
+    localStorage.removeItem(STORAGE_KEYS.showMaterialElementsMode);
     localStorage.removeItem(STORAGE_KEYS.sidebarCollapsed);
     setSectionEnabled(false);
     setSectionAxis("y");
@@ -339,7 +344,6 @@ function App() {
       setElementInfo(null);
       setMeasureStart(null);
       setMeasurePinnedFirstExpressID(null);
-      setShowMaterialElementsMode(false);
       setSelectedMaterialExpressIDs(new Set());
       setActiveTab("project");
     },
@@ -783,6 +787,10 @@ function App() {
   useLayoutEffect(() => {
     localStorage.setItem(STORAGE_KEYS.showRelatedElements, showRelatedElements ? "1" : "0");
   }, [showRelatedElements]);
+
+  useLayoutEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.showMaterialElementsMode, showMaterialElementsMode ? "1" : "0");
+  }, [showMaterialElementsMode]);
 
   useLayoutEffect(() => {
     localStorage.setItem(STORAGE_KEYS.sidebarCollapsed, sidebarCollapsed ? "1" : "0");

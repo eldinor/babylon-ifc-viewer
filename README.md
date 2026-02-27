@@ -19,9 +19,23 @@ Lightweight IFC viewer built with `React + TypeScript + Vite + Babylon.js + web-
   - `Ctrl+Click` to toggle
   - `Shift+Click` to select range.
 - User setting: `Show related elements` (enabled by default).
+- Material Info tab:
+  - lists IFC materials from the IFC file (`IFCMATERIAL`)
+  - compact columns: `Name | Qty | Color | ID`
+  - scrollable list with sticky header
+  - name tooltips for long values.
+- Material `Show Elements` mode:
+  - toggle in Material Info header
+  - clicking material rows isolates scene to elements using selected material(s)
+  - supports `Ctrl/Cmd+Click` toggle and `Shift+Click` range selection.
 - Camera action `Zoom Parent` (`R`) to fit the parent scope of current element without changing Project Tree selection.
 - App title shows build version from `package.json`.
 - Keyboard shortcuts dialog closes on `Esc` and on outside click.
+- Footer status/utility:
+  - IFC schema + file info
+  - model stats (`Parts`, `Meshes`)
+  - live scene stats (`FPS`, `Draw Calls`, `Memory`)
+  - `Export GLB` button for current visible selection.
 - Built-in user guide: `/user-guide.html` (also available from the header Help icon).
 
 ## Run

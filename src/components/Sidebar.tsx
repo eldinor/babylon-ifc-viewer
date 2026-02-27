@@ -1,14 +1,19 @@
-import { InfoIcon, ProjectTreeIcon } from "./Icons";
+import { InfoIcon, MaterialsIcon, ProjectTreeIcon } from "./Icons";
 import ProjectTab from "./sidebar/ProjectTab";
 import InfoTab from "./sidebar/InfoTab";
+import MaterialInfoTab from "./sidebar/MaterialInfoTab";
 import type { TabType } from "../types/app";
 import type { ProjectInfoResult } from "babylon-ifc-loader";
 import type { IfcProjectTreeIndex, IfcProjectTreeNode } from "../utils/projectTreeUtils";
+import type { IfcMaterialInfo } from "./BabylonScene";
 
 interface SidebarProps {
   sidebarCollapsed: boolean;
   activeTab: TabType;
   projectInfo: ProjectInfoResult | null;
+  ifcMaterials: IfcMaterialInfo[] | null;
+  showMaterialElementsMode: boolean;
+  selectedMaterialExpressIDs: Set<number>;
   projectTreeIndex: IfcProjectTreeIndex | null;
   lengthUnitSymbol: string;
   selectedProjectExpressID: number | null;
@@ -31,12 +36,20 @@ interface SidebarProps {
   alwaysFitEnabled: boolean;
   onToggleAlwaysFit: () => void;
   onResetVisibility: () => void;
+  onToggleShowMaterialElementsMode: (enabled: boolean) => void;
+  onSelectMaterial: (
+    material: IfcMaterialInfo | null,
+    options?: { append?: boolean; replaceExpressIDs?: number[] },
+  ) => void;
 }
 
 function Sidebar({
   sidebarCollapsed,
   activeTab,
   projectInfo,
+  ifcMaterials,
+  showMaterialElementsMode,
+  selectedMaterialExpressIDs,
   projectTreeIndex,
   lengthUnitSymbol,
   selectedProjectExpressID,
@@ -56,6 +69,8 @@ function Sidebar({
   alwaysFitEnabled,
   onToggleAlwaysFit,
   onResetVisibility,
+  onToggleShowMaterialElementsMode,
+  onSelectMaterial,
 }: SidebarProps) {
   return (
     <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
@@ -70,6 +85,13 @@ function Sidebar({
           </button>
           <button className={`sidebar-tab ${activeTab === "info" ? "active" : ""}`} onClick={() => onSetTab("info")} title="Info">
             <InfoIcon />
+          </button>
+          <button
+            className={`sidebar-tab ${activeTab === "materials" ? "active" : ""}`}
+            onClick={() => onSetTab("materials")}
+            title="Material Info"
+          >
+            <MaterialsIcon />
           </button>
         </div>
         <button className="sidebar-toggle" onClick={onToggleSidebar}>
@@ -98,6 +120,15 @@ function Sidebar({
           />
         )}
         {activeTab === "info" && <InfoTab projectInfo={projectInfo} />}
+        {activeTab === "materials" && (
+          <MaterialInfoTab
+            ifcMaterials={ifcMaterials}
+            showElementsMode={showMaterialElementsMode}
+            selectedMaterialExpressIDs={selectedMaterialExpressIDs}
+            onToggleShowElementsMode={onToggleShowMaterialElementsMode}
+            onSelectMaterial={onSelectMaterial}
+          />
+        )}
       </div>
 
       <div className="sidebar-footer">

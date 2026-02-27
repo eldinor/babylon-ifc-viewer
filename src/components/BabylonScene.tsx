@@ -11,6 +11,7 @@ import {
   Material,
 } from "@babylonjs/core";
 import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstrumentation";
+import { GLTF2Export } from "@babylonjs/serializers/glTF/2.0/glTFSerializer";
 import type { PickMode, SectionAxis } from "../types/app";
 import {
   initializeWebIFC,
@@ -36,6 +37,7 @@ export interface IfcModelData {
   ifcSchema: string;
   partCount: number;
   meshCount: number;
+  ifcMaterials: IfcMaterialInfo[];
   ifcAPI: WebIFC.IfcAPI;
   dimensionsByExpressID: Map<number, { length: number; width: number; height: number; elevation: number }>;
   lengthUnitSymbol: string;
@@ -46,6 +48,13 @@ export interface IfcModelData {
     y: { min: number; max: number };
     z: { min: number; max: number };
   };
+}
+
+export interface IfcMaterialInfo {
+  expressID: number;
+  name: string;
+  relatedElementExpressIDs: number[];
+  colorHex: string | null;
 }
 
 export interface SceneStats {
@@ -91,6 +100,141 @@ interface CameraViewSnapshot {
   target: Vector3;
 }
 
+function ifcText(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (value && typeof value === "object" && "value" in value) {
+    const nested = (value as { value?: unknown }).value;
+    if (typeof nested === "string") {
+      const trimmed = nested.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
+  }
+  return null;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function channelToHex(value: number): string {
+  return Math.round(clamp01(value) * 255).toString(16).padStart(2, "0");
+}
+
+function parseColorChannel(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return clamp01(value);
+  if (value && typeof value === "object" && "value" in value) {
+    const nested = (value as { value?: unknown }).value;
+    if (typeof nested === "number" && Number.isFinite(nested)) return clamp01(nested);
+  }
+  return null;
+}
+
+function extractIfcColor(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const obj = value as Record<string, unknown>;
+
+  const directRed = parseColorChannel(obj.Red);
+  const directGreen = parseColorChannel(obj.Green);
+  const directBlue = parseColorChannel(obj.Blue);
+  if (directRed !== null && directGreen !== null && directBlue !== null) {
+    return `#${channelToHex(directRed)}${channelToHex(directGreen)}${channelToHex(directBlue)}`;
+  }
+
+  const xyzRed = parseColorChannel(obj.x ?? obj.X);
+  const xyzGreen = parseColorChannel(obj.y ?? obj.Y);
+  const xyzBlue = parseColorChannel(obj.z ?? obj.Z);
+  if (xyzRed !== null && xyzGreen !== null && xyzBlue !== null) {
+    return `#${channelToHex(xyzRed)}${channelToHex(xyzGreen)}${channelToHex(xyzBlue)}`;
+  }
+
+  const fieldsToCheck = ["SurfaceColour", "DiffuseColour", "Colour", "BaseColor", "RGB"];
+  for (const field of fieldsToCheck) {
+    if (!(field in obj)) continue;
+    const nestedHex = extractIfcColor(obj[field]);
+    if (nestedHex) return nestedHex;
+  }
+
+  for (const nested of Object.values(obj)) {
+    const nestedHex = extractIfcColor(nested);
+    if (nestedHex) return nestedHex;
+  }
+
+  return null;
+}
+
+function extractMeshIfcColorHex(mesh: Scene["meshes"][number]): string | null {
+  const material = mesh.material as (Material & { metadata?: unknown }) | null;
+  if (!material || !material.metadata || typeof material.metadata !== "object") return null;
+  const color = (material.metadata as { color?: unknown }).color;
+  if (!color || typeof color !== "object") return null;
+  const rgba = color as { r?: unknown; g?: unknown; b?: unknown; x?: unknown; y?: unknown; z?: unknown };
+  const red = parseColorChannel(rgba.r ?? rgba.x);
+  const green = parseColorChannel(rgba.g ?? rgba.y);
+  const blue = parseColorChannel(rgba.b ?? rgba.z);
+  if (red === null || green === null || blue === null) return null;
+  return `#${channelToHex(red)}${channelToHex(green)}${channelToHex(blue)}`;
+}
+
+function getRefId(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof value === "object" && "value" in value) {
+    const nested = (value as { value?: unknown }).value;
+    if (typeof nested === "number" && Number.isFinite(nested)) return nested;
+  }
+  return null;
+}
+
+function getRefIds(value: unknown): number[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    const ids: number[] = [];
+    value.forEach((entry) => {
+      const id = getRefId(entry);
+      if (id !== null) ids.push(id);
+    });
+    return ids;
+  }
+  const single = getRefId(value);
+  return single === null ? [] : [single];
+}
+
+function collectIfcMaterialRefs(
+  ifcAPI: WebIFC.IfcAPI,
+  modelID: number,
+  value: unknown,
+  out: Set<number>,
+  visitedRefs: Set<number>,
+): void {
+  if (!value) return;
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectIfcMaterialRefs(ifcAPI, modelID, entry, out, visitedRefs));
+    return;
+  }
+
+  const refId = getRefId(value);
+  if (refId !== null) {
+    if (visitedRefs.has(refId)) return;
+    visitedRefs.add(refId);
+    try {
+      const line = ifcAPI.GetLine(modelID, refId, false) as { type?: unknown } & Record<string, unknown>;
+      if (line && typeof line.type === "number" && line.type === WebIFC.IFCMATERIAL) {
+        out.add(refId);
+      }
+      Object.values(line ?? {}).forEach((nested) => collectIfcMaterialRefs(ifcAPI, modelID, nested, out, visitedRefs));
+    } catch {
+      // Ignore unresolved references.
+    }
+    return;
+  }
+
+  if (typeof value === "object") {
+    Object.values(value as Record<string, unknown>).forEach((nested) => collectIfcMaterialRefs(ifcAPI, modelID, nested, out, visitedRefs));
+  }
+}
+
 function getMeshExpressID(mesh: Scene["meshes"][number]): number | null {
   const metadata = mesh.metadata as { expressID?: unknown } | null;
   return typeof metadata?.expressID === "number" ? metadata.expressID : null;
@@ -132,6 +276,61 @@ function buildAxisRanges(meshes: Scene["meshes"]) {
     y: { min: minY, max: maxY },
     z: { min: minZ, max: maxZ },
   };
+}
+
+function readIfcMaterials(ifcAPI: WebIFC.IfcAPI, modelID: number, meshes: Scene["meshes"]): IfcMaterialInfo[] {
+  try {
+    const ids = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCMATERIAL);
+    const relatedElementsByMaterial = new Map<number, Set<number>>();
+    const relIds = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCRELASSOCIATESMATERIAL);
+
+    for (let i = 0; i < relIds.size(); i += 1) {
+      const relExpressID = relIds.get(i);
+      const relLine = ifcAPI.GetLine(modelID, relExpressID, false) as {
+        RelatingMaterial?: unknown;
+        RelatedObjects?: unknown;
+      };
+
+      const materialIDs = new Set<number>();
+      collectIfcMaterialRefs(ifcAPI, modelID, relLine.RelatingMaterial, materialIDs, new Set<number>());
+      const relatedObjectIDs = getRefIds(relLine.RelatedObjects);
+
+      materialIDs.forEach((materialID) => {
+        const existing = relatedElementsByMaterial.get(materialID) ?? new Set<number>();
+        relatedObjectIDs.forEach((id) => existing.add(id));
+        relatedElementsByMaterial.set(materialID, existing);
+      });
+    }
+
+    const meshColorByExpressID = new Map<number, string>();
+    meshes.forEach((mesh) => {
+      const expressID = getMeshExpressID(mesh);
+      if (expressID === null || meshColorByExpressID.has(expressID)) return;
+      const colorHex = extractMeshIfcColorHex(mesh);
+      if (colorHex) meshColorByExpressID.set(expressID, colorHex);
+    });
+
+    const materials: IfcMaterialInfo[] = [];
+    for (let i = 0; i < ids.size(); i += 1) {
+      const expressID = ids.get(i);
+      const line = ifcAPI.GetLine(modelID, expressID, true) as {
+        Name?: unknown;
+      };
+      const relatedElementExpressIDs = Array.from(relatedElementsByMaterial.get(expressID) ?? []).sort((a, b) => a - b);
+      const colorHex =
+        relatedElementExpressIDs.map((id) => meshColorByExpressID.get(id) ?? null).find((value): value is string => value !== null) ??
+        extractIfcColor(line);
+      materials.push({
+        expressID,
+        name: ifcText(line.Name) ?? `IFCMATERIAL #${expressID}`,
+        relatedElementExpressIDs,
+        colorHex,
+      });
+    }
+    return materials.sort((a, b) => a.name.localeCompare(b.name) || a.expressID - b.expressID);
+  } catch {
+    return [];
+  }
 }
 
 function BabylonScene({
@@ -489,6 +688,49 @@ const [ifcReady, setIfcReady] = useState(false);
     return typeof metadata?.expressID === "number" ? metadata.expressID : null;
   }, []);
 
+  const exportCurrentGlb = useCallback(async (expressIDs?: number[]): Promise<boolean> => {
+    const scene = sceneRef.current;
+    if (!scene) return false;
+    const selectedSet = Array.isArray(expressIDs) ? new Set(expressIDs) : null;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const fileName = `ifc-selection-${timestamp}.glb`;
+
+    try {
+      const gltf = await GLTF2Export.GLBAsync(scene, fileName, {
+        shouldExportNode: (node) => {
+          const candidate = node as unknown as {
+            metadata?: { expressID?: unknown };
+            isEnabled?: () => boolean;
+            isVisible?: boolean;
+          };
+          const expressID = candidate.metadata?.expressID;
+          if (typeof expressID !== "number") return false;
+          if (selectedSet) return selectedSet.has(expressID);
+          const enabled = typeof candidate.isEnabled === "function" ? candidate.isEnabled() : true;
+          return enabled && candidate.isVisible !== false;
+        },
+      });
+
+      const files = gltf.glTFFiles as Record<string, Blob>;
+      const glbEntry = Object.entries(files).find(([name]) => name.toLowerCase().endsWith(".glb"));
+      if (!glbEntry) return false;
+
+      const [, blob] = glbEntry;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (error) {
+      console.error("Failed to export GLB:", error);
+      return false;
+    }
+  }, []);
+
 // Function to load IFC file
   const loadIfcFile = useCallback(async (file: File | string) => {
     if (!ifcAPIRef.current || !sceneRef.current) {
@@ -587,6 +829,7 @@ const [ifcReady, setIfcReady] = useState(false);
           ifcSchema,
           partCount: model.rawStats.partCount,
           meshCount: meshes.length,
+          ifcMaterials: readIfcMaterials(ifcAPIRef.current, model.modelID, meshes),
           ifcAPI: ifcAPIRef.current,
           dimensionsByExpressID,
           lengthUnitSymbol: lengthUnit.symbol,
@@ -673,6 +916,13 @@ const [ifcReady, setIfcReady] = useState(false);
       delete window.getHighlightedExpressID;
     };
   }, [getHighlightedExpressID]);
+
+  useEffect(() => {
+    window.exportCurrentGlb = exportCurrentGlb;
+    return () => {
+      delete window.exportCurrentGlb;
+    };
+  }, [exportCurrentGlb]);
 
   // Auto-load sample.ifc when WebIFC is ready
   useEffect(() => {

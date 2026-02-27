@@ -85,7 +85,7 @@
         <h1>Babylon IFC Viewer User Guide</h1>
         <p class="muted">
           This guide explains the current workflows: loading a model, navigating the IFC tree, using pick modes,
-          clipping, and copying element data.
+          clipping, material workflows, exporting, and copying element data.
         </p>
       </section>
 
@@ -176,9 +176,40 @@
       <section class="card">
         <h2>8. Tips and Troubleshooting</h2>
         <ul>
+          <li>Open the <strong>Material Info</strong> tab to inspect IFC materials from the file (<code>IFCMATERIAL</code> entries).</li>
+          <li>The table is compact and scrollable; hover material names to see full text.</li>
+          <li><strong>Qty</strong> is number of related elements found for each material.</li>
+          <li><strong>Color</strong> is shown when available from IFC geometry/style data.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>9. Material "Show Elements" Mode</h2>
+        <ul>
+          <li>In Material Info header, enable <strong>Show Elements</strong>.</li>
+          <li>Click a material row to isolate model visibility to elements related to that material.</li>
+          <li><code>Ctrl/Cmd+Click</code> toggles materials in current selection.</li>
+          <li><code>Shift+Click</code> selects a range of materials.</li>
+          <li>Disable <strong>Show Elements</strong> to clear material-based isolation and return to normal visibility.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>10. Footer Status and Export</h2>
+        <ul>
+          <li>Footer shows IFC schema, file name, file size, and model counters (<code>Parts</code>, <code>Meshes</code>).</li>
+          <li>Right-side status panel shows live <code>FPS</code>, <code>Draw Calls</code>, and <code>Memory</code>.</li>
+          <li><strong>Export GLB</strong> exports the current visible selection as a <code>.glb</code> file.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>11. Tips and Troubleshooting</h2>
+        <ul>
           <li>If picking does not return data, verify the loaded file contains IFC geometry and metadata.</li>
           <li>If performance drops on huge models, expand only relevant tree branches.</li>
           <li>Use subtree selection in Project Tree to focus on one part of the project.</li>
+          <li>If export result is too broad, first isolate desired elements (Project Tree, search display, or Material Show Elements), then use <strong>Export GLB</strong>.</li>
         </ul>
       </section>
 

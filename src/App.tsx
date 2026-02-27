@@ -196,6 +196,8 @@ function App() {
   );
   const [recentIfcFiles, setRecentIfcFiles] = useState<RecentIfcFile[]>(() => readRecentIfcFiles());
   const [sceneStats, setSceneStats] = useState<SceneStats>({ fps: null, drawCalls: null, memoryMb: null });
+  const [showMaterialElementsMode, setShowMaterialElementsMode] = useState(false);
+  const [selectedMaterialExpressIDs, setSelectedMaterialExpressIDs] = useState<Set<number>>(new Set());
 
   const handleModelCleared = useCallback(() => {
     setElementInfo(null);
@@ -259,6 +261,11 @@ function App() {
 
   const handleOpenHelp = useCallback(() => {
     window.open("/user-guide.html", "_blank", "noopener,noreferrer");
+  }, []);
+
+  const handleExportGlb = useCallback(async () => {
+    if (!window.exportCurrentGlb) return;
+    await window.exportCurrentGlb();
   }, []);
 
   const handlePickModeChange = useCallback((mode: PickMode) => {
@@ -332,6 +339,8 @@ function App() {
       setElementInfo(null);
       setMeasureStart(null);
       setMeasurePinnedFirstExpressID(null);
+      setShowMaterialElementsMode(false);
+      setSelectedMaterialExpressIDs(new Set());
       setActiveTab("project");
     },
     [setModelData],
@@ -348,6 +357,37 @@ function App() {
     setVisibleExpressIDs(null);
     setHiddenExpressIDs(new Set());
   }, []);
+
+  const handleToggleShowMaterialElementsMode = useCallback((enabled: boolean) => {
+    setShowMaterialElementsMode(enabled);
+    if (!enabled) {
+      setSelectedMaterialExpressIDs(new Set());
+      setVisibleExpressIDs(null);
+      setHiddenExpressIDs(new Set());
+    }
+  }, []);
+
+  const handleSelectMaterial = useCallback((
+    material: IfcModelData["ifcMaterials"][number] | null,
+    options?: { append?: boolean; replaceExpressIDs?: number[] },
+  ) => {
+    let nextSelected: Set<number>;
+    if (options?.replaceExpressIDs) {
+      nextSelected = new Set(options.replaceExpressIDs);
+    } else if (material && options?.append) {
+      nextSelected = new Set(selectedMaterialExpressIDs);
+      if (nextSelected.has(material.expressID)) {
+        nextSelected.delete(material.expressID);
+      } else {
+        nextSelected.add(material.expressID);
+      }
+    } else if (material) {
+      nextSelected = new Set([material.expressID]);
+    } else {
+      nextSelected = new Set();
+    }
+    setSelectedMaterialExpressIDs(nextSelected);
+  }, [selectedMaterialExpressIDs]);
 
   const handleDisplaySearchResults = useCallback((expressIDs: number[]) => {
     if (expressIDs.length === 0) return;
@@ -851,6 +891,31 @@ function App() {
     autoLoadZoomModelIDRef.current = modelData.modelID;
   }, [modelData, projectTreeIndex]);
 
+  useEffect(() => {
+    if (!showMaterialElementsMode) return;
+    if (!modelData) {
+      setVisibleExpressIDs(null);
+      setHiddenExpressIDs(new Set());
+      return;
+    }
+    if (selectedMaterialExpressIDs.size === 0) {
+      setVisibleExpressIDs(null);
+      setHiddenExpressIDs(new Set());
+      return;
+    }
+
+    const selectedMaterials = modelData.ifcMaterials.filter((material) => selectedMaterialExpressIDs.has(material.expressID));
+    const relatedExpressIDs = new Set<number>();
+    selectedMaterials.forEach((material) => {
+      material.relatedElementExpressIDs.forEach((expressID) => relatedExpressIDs.add(expressID));
+    });
+
+    setVisibleExpressIDs(relatedExpressIDs);
+    setHiddenExpressIDs(new Set());
+    setSelectedProjectExpressID(null);
+    setSelectedProjectExpressIDs(new Set());
+  }, [modelData, selectedMaterialExpressIDs, showMaterialElementsMode]);
+
   return (
     <div className="app">
       <AppHeader
@@ -914,6 +979,9 @@ function App() {
           sidebarCollapsed={sidebarCollapsed}
           activeTab={activeTab}
           projectInfo={projectInfo}
+          ifcMaterials={modelData?.ifcMaterials ?? null}
+          showMaterialElementsMode={showMaterialElementsMode}
+          selectedMaterialExpressIDs={selectedMaterialExpressIDs}
           projectTreeIndex={projectTreeIndex}
           lengthUnitSymbol={modelData?.lengthUnitSymbol ?? "m"}
           selectedProjectExpressID={selectedProjectExpressID}
@@ -933,6 +1001,8 @@ function App() {
           alwaysFitEnabled={alwaysFitEnabled}
           onToggleAlwaysFit={() => setAlwaysFitEnabled((prev) => !prev)}
           onResetVisibility={handleResetVisibility}
+          onToggleShowMaterialElementsMode={handleToggleShowMaterialElementsMode}
+          onSelectMaterial={handleSelectMaterial}
         />
 
         <main className="canvas-container">
@@ -970,6 +1040,15 @@ function App() {
           onClick={() => setShortcutsOpen(true)}
         >
           Keyboard Shortcuts: Shift+?
+        </button>
+        <button
+          type="button"
+          className="footer-export-glb-btn"
+          onClick={handleExportGlb}
+          disabled={!modelData}
+          title="Export current visible selection as GLB"
+        >
+          Export GLB
         </button>
         <div className="footer-model-stats" aria-label="Model summary">
           <span>{`Parts - ${footerFileInfo ? footerFileInfo.partCount : "-"}`}</span>

@@ -7,5 +7,6 @@ declare global {
     saveCurrentView?: () => boolean;
     restoreSavedView?: () => boolean;
     getHighlightedExpressID?: () => number | null;
+    exportCurrentGlb?: (expressIDs?: number[]) => Promise<boolean>;
   }
 }

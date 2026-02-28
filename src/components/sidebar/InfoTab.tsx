@@ -1,4 +1,4 @@
-import type { ProjectInfoResult } from "babylon-ifc-loader";
+import type { ProjectInfoResult } from "../../loader";
 
 interface InfoTabProps {
   projectInfo: ProjectInfoResult | null;

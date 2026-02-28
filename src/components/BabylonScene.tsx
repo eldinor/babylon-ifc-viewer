@@ -14,18 +14,14 @@ import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstr
 import { GLTF2Export } from "@babylonjs/serializers/glTF/2.0/glTFSerializer";
 import type { PickMode, SectionAxis } from "../types/app";
 import {
-  initializeWebIFC,
-  loadIfcModel,
-  closeIfcModel,
-  getProjectInfo,
+  createIfcLoader,
   buildIfcModel,
   disposeIfcModel,
   getModelBounds,
-} from "babylon-ifc-loader";
-import type { RawIfcModel, ProjectInfoResult } from "babylon-ifc-loader";
-import * as WebIFC from "web-ifc";
+} from "../loader";
+import type { IfcLoader, IfcMaterialInfoResult, PreparedIfcModel, ProjectInfoResult } from "../loader";
 import { setupPickingHandler, type ElementPickData, type PickingManager } from "../utils/pickingUtils";
-import { getIfcLengthUnitInfo } from "../utils/ifcUnits";
+import type { IfcProjectTreeIndex } from "../utils/projectTreeUtils";
 
 /**
  * Data passed to parent when an IFC model is loaded
@@ -38,7 +34,8 @@ export interface IfcModelData {
   partCount: number;
   meshCount: number;
   ifcMaterials: IfcMaterialInfo[];
-  ifcAPI: WebIFC.IfcAPI;
+  loader: IfcLoader;
+  projectTreeIndex: IfcProjectTreeIndex;
   dimensionsByExpressID: Map<number, { length: number; width: number; height: number; elevation: number }>;
   lengthUnitSymbol: string;
   sourceFileName: string;
@@ -100,21 +97,6 @@ interface CameraViewSnapshot {
   target: Vector3;
 }
 
-function ifcText(value: unknown): string | null {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-  if (value && typeof value === "object" && "value" in value) {
-    const nested = (value as { value?: unknown }).value;
-    if (typeof nested === "string") {
-      const trimmed = nested.trim();
-      return trimmed.length > 0 ? trimmed : null;
-    }
-  }
-  return null;
-}
-
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
@@ -132,39 +114,6 @@ function parseColorChannel(value: unknown): number | null {
   return null;
 }
 
-function extractIfcColor(value: unknown): string | null {
-  if (!value || typeof value !== "object") return null;
-  const obj = value as Record<string, unknown>;
-
-  const directRed = parseColorChannel(obj.Red);
-  const directGreen = parseColorChannel(obj.Green);
-  const directBlue = parseColorChannel(obj.Blue);
-  if (directRed !== null && directGreen !== null && directBlue !== null) {
-    return `#${channelToHex(directRed)}${channelToHex(directGreen)}${channelToHex(directBlue)}`;
-  }
-
-  const xyzRed = parseColorChannel(obj.x ?? obj.X);
-  const xyzGreen = parseColorChannel(obj.y ?? obj.Y);
-  const xyzBlue = parseColorChannel(obj.z ?? obj.Z);
-  if (xyzRed !== null && xyzGreen !== null && xyzBlue !== null) {
-    return `#${channelToHex(xyzRed)}${channelToHex(xyzGreen)}${channelToHex(xyzBlue)}`;
-  }
-
-  const fieldsToCheck = ["SurfaceColour", "DiffuseColour", "Colour", "BaseColor", "RGB"];
-  for (const field of fieldsToCheck) {
-    if (!(field in obj)) continue;
-    const nestedHex = extractIfcColor(obj[field]);
-    if (nestedHex) return nestedHex;
-  }
-
-  for (const nested of Object.values(obj)) {
-    const nestedHex = extractIfcColor(nested);
-    if (nestedHex) return nestedHex;
-  }
-
-  return null;
-}
-
 function extractMeshIfcColorHex(mesh: Scene["meshes"][number]): string | null {
   const material = mesh.material as (Material & { metadata?: unknown }) | null;
   if (!material || !material.metadata || typeof material.metadata !== "object") return null;
@@ -178,66 +127,29 @@ function extractMeshIfcColorHex(mesh: Scene["meshes"][number]): string | null {
   return `#${channelToHex(red)}${channelToHex(green)}${channelToHex(blue)}`;
 }
 
-function getRefId(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (value && typeof value === "object" && "value" in value) {
-    const nested = (value as { value?: unknown }).value;
-    if (typeof nested === "number" && Number.isFinite(nested)) return nested;
-  }
-  return null;
-}
-
-function getRefIds(value: unknown): number[] {
-  if (!value) return [];
-  if (Array.isArray(value)) {
-    const ids: number[] = [];
-    value.forEach((entry) => {
-      const id = getRefId(entry);
-      if (id !== null) ids.push(id);
-    });
-    return ids;
-  }
-  const single = getRefId(value);
-  return single === null ? [] : [single];
-}
-
-function collectIfcMaterialRefs(
-  ifcAPI: WebIFC.IfcAPI,
-  modelID: number,
-  value: unknown,
-  out: Set<number>,
-  visitedRefs: Set<number>,
-): void {
-  if (!value) return;
-  if (Array.isArray(value)) {
-    value.forEach((entry) => collectIfcMaterialRefs(ifcAPI, modelID, entry, out, visitedRefs));
-    return;
-  }
-
-  const refId = getRefId(value);
-  if (refId !== null) {
-    if (visitedRefs.has(refId)) return;
-    visitedRefs.add(refId);
-    try {
-      const line = ifcAPI.GetLine(modelID, refId, false) as { type?: unknown } & Record<string, unknown>;
-      if (line && typeof line.type === "number" && line.type === WebIFC.IFCMATERIAL) {
-        out.add(refId);
-      }
-      Object.values(line ?? {}).forEach((nested) => collectIfcMaterialRefs(ifcAPI, modelID, nested, out, visitedRefs));
-    } catch {
-      // Ignore unresolved references.
-    }
-    return;
-  }
-
-  if (typeof value === "object") {
-    Object.values(value as Record<string, unknown>).forEach((nested) => collectIfcMaterialRefs(ifcAPI, modelID, nested, out, visitedRefs));
-  }
-}
-
 function getMeshExpressID(mesh: Scene["meshes"][number]): number | null {
   const metadata = mesh.metadata as { expressID?: unknown } | null;
-  return typeof metadata?.expressID === "number" ? metadata.expressID : null;
+  return typeof metadata?.expressID === "number" && metadata.expressID >= 0 ? metadata.expressID : null;
+}
+
+function getMeshElementExpressIDs(mesh: Scene["meshes"][number]): number[] {
+  const directExpressID = getMeshExpressID(mesh);
+  if (directExpressID !== null) return [directExpressID];
+
+  const metadata = mesh.metadata as { elementRanges?: Array<{ expressID?: unknown }> } | null;
+  if (!Array.isArray(metadata?.elementRanges)) return [];
+
+  const ids = new Set<number>();
+  metadata.elementRanges.forEach((range) => {
+    if (typeof range?.expressID === "number" && range.expressID >= 0) {
+      ids.add(range.expressID);
+    }
+  });
+  return Array.from(ids);
+}
+
+function meshContainsExpressID(mesh: Scene["meshes"][number], expressID: number): boolean {
+  return getMeshElementExpressIDs(mesh).includes(expressID);
 }
 
 function buildAxisRanges(meshes: Scene["meshes"]) {
@@ -278,59 +190,24 @@ function buildAxisRanges(meshes: Scene["meshes"]) {
   };
 }
 
-function readIfcMaterials(ifcAPI: WebIFC.IfcAPI, modelID: number, meshes: Scene["meshes"]): IfcMaterialInfo[] {
-  try {
-    const ids = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCMATERIAL);
-    const relatedElementsByMaterial = new Map<number, Set<number>>();
-    const relIds = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCRELASSOCIATESMATERIAL);
+function readIfcMaterials(materials: IfcMaterialInfoResult[], meshes: Scene["meshes"]): IfcMaterialInfo[] {
+  const meshColorByExpressID = new Map<number, string>();
+  meshes.forEach((mesh) => {
+    const expressID = getMeshExpressID(mesh);
+    if (expressID === null || meshColorByExpressID.has(expressID)) return;
+    const colorHex = extractMeshIfcColorHex(mesh);
+    if (colorHex) meshColorByExpressID.set(expressID, colorHex);
+  });
 
-    for (let i = 0; i < relIds.size(); i += 1) {
-      const relExpressID = relIds.get(i);
-      const relLine = ifcAPI.GetLine(modelID, relExpressID, false) as {
-        RelatingMaterial?: unknown;
-        RelatedObjects?: unknown;
-      };
-
-      const materialIDs = new Set<number>();
-      collectIfcMaterialRefs(ifcAPI, modelID, relLine.RelatingMaterial, materialIDs, new Set<number>());
-      const relatedObjectIDs = getRefIds(relLine.RelatedObjects);
-
-      materialIDs.forEach((materialID) => {
-        const existing = relatedElementsByMaterial.get(materialID) ?? new Set<number>();
-        relatedObjectIDs.forEach((id) => existing.add(id));
-        relatedElementsByMaterial.set(materialID, existing);
-      });
-    }
-
-    const meshColorByExpressID = new Map<number, string>();
-    meshes.forEach((mesh) => {
-      const expressID = getMeshExpressID(mesh);
-      if (expressID === null || meshColorByExpressID.has(expressID)) return;
-      const colorHex = extractMeshIfcColorHex(mesh);
-      if (colorHex) meshColorByExpressID.set(expressID, colorHex);
-    });
-
-    const materials: IfcMaterialInfo[] = [];
-    for (let i = 0; i < ids.size(); i += 1) {
-      const expressID = ids.get(i);
-      const line = ifcAPI.GetLine(modelID, expressID, true) as {
-        Name?: unknown;
-      };
-      const relatedElementExpressIDs = Array.from(relatedElementsByMaterial.get(expressID) ?? []).sort((a, b) => a - b);
-      const colorHex =
-        relatedElementExpressIDs.map((id) => meshColorByExpressID.get(id) ?? null).find((value): value is string => value !== null) ??
-        extractIfcColor(line);
-      materials.push({
-        expressID,
-        name: ifcText(line.Name) ?? `IFCMATERIAL #${expressID}`,
-        relatedElementExpressIDs,
-        colorHex,
-      });
-    }
-    return materials.sort((a, b) => a.name.localeCompare(b.name) || a.expressID - b.expressID);
-  } catch {
-    return [];
-  }
+  return materials.map((material) => ({
+    expressID: material.expressID,
+    name: material.name,
+    relatedElementExpressIDs: [...material.relatedElementExpressIDs],
+    colorHex:
+      material.relatedElementExpressIDs
+        .map((id) => meshColorByExpressID.get(id) ?? null)
+        .find((value): value is string => value !== null) ?? material.colorHex,
+  }));
 }
 
 function BabylonScene({
@@ -349,11 +226,12 @@ function BabylonScene({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const sceneRef = useRef<Scene | null>(null);
-  const ifcAPIRef = useRef<WebIFC.IfcAPI | null>(null);
-  const modelRef = useRef<RawIfcModel | null>(null);
+  const loaderRef = useRef<IfcLoader | null>(null);
+  const modelRef = useRef<PreparedIfcModel | null>(null);
   const sceneInstrumentationRef = useRef<SceneInstrumentation | null>(null);
   const pickingManagerRef = useRef<PickingManager | null>(null);
   const savedViewRef = useRef<CameraViewSnapshot | null>(null);
+  const hasAutoLoadedSampleRef = useRef(false);
   const onModelLoadedRef = useRef<typeof onModelLoaded>(onModelLoaded);
   const onSceneStatsUpdateRef = useRef<typeof onSceneStatsUpdate>(onSceneStatsUpdate);
   const onElementPickedRef = useRef<typeof onElementPicked>(onElementPicked);
@@ -399,8 +277,7 @@ const [ifcReady, setIfcReady] = useState(false);
   const buildDimensionsMap = useCallback((meshes: Scene["meshes"]) => {
     const map = new Map<number, { length: number; width: number; height: number; elevation: number }>();
     meshes.forEach((mesh) => {
-      const metadata = mesh.metadata as { expressID?: unknown } | null;
-      const expressID = typeof metadata?.expressID === "number" ? metadata.expressID : null;
+      const expressID = getMeshExpressID(mesh);
       if (expressID === null || map.has(expressID)) return;
       const boundingInfo = mesh.getBoundingInfo();
       if (!boundingInfo) return;
@@ -426,9 +303,11 @@ const [ifcReady, setIfcReady] = useState(false);
     let hiddenCount = 0;
 
     meshes.forEach((mesh) => {
-      const expressID = mesh.metadata?.expressID;
-      const passesIsolateFilter = visibleExpressIDs && expressID !== undefined ? visibleExpressIDs.has(expressID) : true;
-      const notHidden = expressID !== undefined ? !hiddenExpressIDs?.has(expressID) : true;
+      const meshExpressIDs = getMeshElementExpressIDs(mesh);
+      const passesIsolateFilter =
+        visibleExpressIDs && meshExpressIDs.length > 0 ? meshExpressIDs.some((expressID) => visibleExpressIDs.has(expressID)) : true;
+      const notHidden =
+        meshExpressIDs.length > 0 ? meshExpressIDs.some((expressID) => !hiddenExpressIDs?.has(expressID)) : true;
       const shouldShow = passesIsolateFilter && notHidden;
       mesh.isVisible = shouldShow;
       mesh.setEnabled(shouldShow);
@@ -447,77 +326,108 @@ const [ifcReady, setIfcReady] = useState(false);
 
   // Initialize engine and scene
   useEffect(() => {
-    if (!canvasRef.current) return
+    const canvas = canvasRef.current
+    if (!canvas) return
 
-    const engine = new Engine(canvasRef.current, true, {
-      preserveDrawingBuffer: true,
-      stencil: true,
-    })
-    engineRef.current = engine
-
-    const scene = new Scene(engine)
-    sceneRef.current = scene
-    sceneInstrumentationRef.current = new SceneInstrumentation(scene)
-
-    // Create camera
-    const camera = new ArcRotateCamera(
-      'camera',
-      -Math.PI / 2,
-      Math.PI / 2.5,
-      10,
-      Vector3.Zero(),
-      scene
-    )
-    camera.attachControl(canvasRef.current, true)
-    camera.lowerRadiusLimit = 1
-    camera.upperRadiusLimit = 500
-    camera.wheelPrecision = 10
-
-    // Create lights for PBR
-    const light = new HemisphericLight('light', new Vector3(0, 1, 0), scene)
-    light.intensity = 0.7
-    light.groundColor = new Color3(0.3, 0.3, 0.3)
-
-    // Render loop
-    engine.runRenderLoop(() => {
-      scene.render()
-    })
-
-    // Handle window resize
-    const handleResize = () => {
-      engine.resize()
-    }
-    window.addEventListener('resize', handleResize)
     let resizeTimeoutId: number | undefined
-    const resizeObserver = new ResizeObserver(() => {
-      if (resizeTimeoutId !== undefined) {
-        window.clearTimeout(resizeTimeoutId)
-      }
-      // Avoid resizing every frame during sidebar width transition.
-      resizeTimeoutId = window.setTimeout(() => {
-        engine.resize()
-      }, 120)
-    })
-    resizeObserver.observe(canvasRef.current)
+    let resizeObserver: ResizeObserver | null = null
+    let disposed = false
 
-    // Initialize WebIFC
-    const initIfc = async () => {
-      try {
-        const ifcAPI = await initializeWebIFC('./', WebIFC.LogLevel.LOG_LEVEL_ERROR)
-        ifcAPIRef.current = ifcAPI
-        console.log('✓ WebIFC initialized')
-        setIfcReady(true)
-      } catch (err) {
-        console.error('Failed to initialize WebIFC:', err)
-        setError('Failed to initialize IFC loader')
+    const initializeScene = () => {
+      if (disposed) return
+
+      const engine = new Engine(canvas, true, {
+        preserveDrawingBuffer: true,
+        stencil: true,
+      })
+      engineRef.current = engine
+
+      const scene = new Scene(engine)
+      sceneRef.current = scene
+      sceneInstrumentationRef.current = new SceneInstrumentation(scene)
+
+      // Create camera
+      const camera = new ArcRotateCamera(
+        'camera',
+        -Math.PI / 2,
+        Math.PI / 2.5,
+        10,
+        Vector3.Zero(),
+        scene
+      )
+      camera.attachControl(canvas, true)
+      camera.lowerRadiusLimit = 1
+      camera.upperRadiusLimit = 500
+      camera.wheelPrecision = 10
+
+      // Create lights for PBR
+      const light = new HemisphericLight('light', new Vector3(0, 1, 0), scene)
+      light.intensity = 0.7
+      light.groundColor = new Color3(0.3, 0.3, 0.3)
+
+      // Render loop
+      engine.runRenderLoop(() => {
+        scene.render()
+      })
+
+      // Handle window resize
+      const handleResize = () => {
+        engine.resize()
+      }
+      window.addEventListener('resize', handleResize)
+      resizeObserver = new ResizeObserver(() => {
+        if (resizeTimeoutId !== undefined) {
+          window.clearTimeout(resizeTimeoutId)
+        }
+        // Avoid resizing every frame during sidebar width transition.
+        resizeTimeoutId = window.setTimeout(() => {
+          engine.resize()
+        }, 120)
+      })
+      resizeObserver.observe(canvas)
+
+      // Initialize the unified IFC loader once and reuse it for all file loads.
+      const initIfc = async () => {
+        const loader = createIfcLoader()
+        try {
+          await loader.init('/')
+          if (disposed) {
+            await loader.dispose()
+            return
+          }
+          loaderRef.current = loader
+          console.log('IFC loader initialized')
+          setIfcReady(true)
+        } catch (err) {
+          if (!disposed) {
+            loaderRef.current = null
+          }
+          await loader.dispose().catch(() => undefined)
+          console.error('Failed to initialize IFC loader:', err)
+          setError('Failed to initialize IFC loader')
+        }
+      }
+      void initIfc()
+
+      return () => {
+        window.removeEventListener('resize', handleResize)
       }
     }
-    initIfc()
+
+    let removeResizeListener: (() => void) | undefined
+    // Defer initialization so the first StrictMode test mount can cleanly cancel it.
+    const initTimeoutId = window.setTimeout(() => {
+      removeResizeListener = initializeScene()
+    }, 0)
 
     // Cleanup
     return () => {
-      window.removeEventListener('resize', handleResize)
-      resizeObserver.disconnect()
+      disposed = true
+      if (initTimeoutId !== undefined) {
+        window.clearTimeout(initTimeoutId)
+      }
+      removeResizeListener?.()
+      resizeObserver?.disconnect()
       if (resizeTimeoutId !== undefined) {
         window.clearTimeout(resizeTimeoutId)
       }
@@ -537,12 +447,19 @@ const [ifcReady, setIfcReady] = useState(false);
         sceneInstrumentationRef.current = null
       }
       
-      // Close IFC model
-      if (ifcAPIRef.current && modelRef.current) {
-        closeIfcModel(ifcAPIRef.current, modelRef.current.modelID)
+      // Close the active IFC model and release the loader.
+      if (loaderRef.current && modelRef.current && modelRef.current.modelID >= 0) {
+        void loaderRef.current.closeIfcModel(modelRef.current.modelID)
       }
+      if (loaderRef.current) {
+        void loaderRef.current.dispose()
+        loaderRef.current = null
+      }
+      modelRef.current = null
       
-      engine.dispose()
+      engineRef.current?.dispose()
+      engineRef.current = null
+      sceneRef.current = null
     }
   }, [])
 
@@ -571,10 +488,7 @@ const [ifcReady, setIfcReady] = useState(false);
       return;
     }
 
-    const firstMesh = scene.meshes.find((mesh) => {
-      const metadata = mesh.metadata as { expressID?: unknown } | null;
-      return typeof metadata?.expressID === "number" && metadata.expressID === measurePinnedFirstExpressID;
-    });
+    const firstMesh = scene.meshes.find((mesh) => meshContainsExpressID(mesh, measurePinnedFirstExpressID));
     manager.setPersistentHighlight(firstMesh ?? null, {
       highlightColor: darkenColor(toColor3(highlightColor), 0.55),
       highlightAlpha: 0.38,
@@ -625,8 +539,8 @@ const [ifcReady, setIfcReady] = useState(false);
     let hasBounds = false;
 
     scene.meshes.forEach((mesh) => {
-      const expressID = getMeshExpressID(mesh);
-      if (expressID === null || !targetIDs.has(expressID)) return;
+      const meshExpressIDs = getMeshElementExpressIDs(mesh);
+      if (meshExpressIDs.length === 0 || !meshExpressIDs.some((expressID) => targetIDs.has(expressID))) return;
       const boundingInfo = mesh.getBoundingInfo();
       if (!boundingInfo) return;
       const min = boundingInfo.boundingBox.minimumWorld;
@@ -682,10 +596,7 @@ const [ifcReady, setIfcReady] = useState(false);
   }, []);
 
   const getHighlightedExpressID = useCallback((): number | null => {
-    const highlightedMesh = pickingManagerRef.current?.getCurrentHighlightedMesh() ?? null;
-    if (!highlightedMesh) return null;
-    const metadata = highlightedMesh.metadata as { expressID?: unknown } | null;
-    return typeof metadata?.expressID === "number" ? metadata.expressID : null;
+    return pickingManagerRef.current?.getCurrentHighlightedExpressID() ?? null;
   }, []);
 
   const exportCurrentGlb = useCallback(async (expressIDs?: number[]): Promise<boolean> => {
@@ -699,13 +610,29 @@ const [ifcReady, setIfcReady] = useState(false);
       const gltf = await GLTF2Export.GLBAsync(scene, fileName, {
         shouldExportNode: (node) => {
           const candidate = node as unknown as {
-            metadata?: { expressID?: unknown };
+            metadata?: {
+              expressID?: unknown;
+              elementRanges?: Array<{ expressID?: unknown }>;
+            };
             isEnabled?: () => boolean;
             isVisible?: boolean;
           };
-          const expressID = candidate.metadata?.expressID;
-          if (typeof expressID !== "number") return false;
-          if (selectedSet) return selectedSet.has(expressID);
+          const directExpressID =
+            typeof candidate.metadata?.expressID === "number" && candidate.metadata.expressID >= 0
+              ? candidate.metadata.expressID
+              : null;
+          const meshExpressIDs =
+            directExpressID !== null
+              ? [directExpressID]
+              : Array.isArray(candidate.metadata?.elementRanges)
+                ? candidate.metadata.elementRanges
+                    .map((range) =>
+                      typeof range?.expressID === "number" && range.expressID >= 0 ? range.expressID : null,
+                    )
+                    .filter((expressID): expressID is number => expressID !== null)
+                : [];
+          if (meshExpressIDs.length === 0) return false;
+          if (selectedSet) return meshExpressIDs.some((expressID) => selectedSet.has(expressID));
           const enabled = typeof candidate.isEnabled === "function" ? candidate.isEnabled() : true;
           return enabled && candidate.isVisible !== false;
         },
@@ -733,7 +660,7 @@ const [ifcReady, setIfcReady] = useState(false);
 
 // Function to load IFC file
   const loadIfcFile = useCallback(async (file: File | string) => {
-    if (!ifcAPIRef.current || !sceneRef.current) {
+    if (!loaderRef.current || !sceneRef.current) {
       setError('IFC loader not initialized')
       return
     }
@@ -758,8 +685,8 @@ const [ifcReady, setIfcReady] = useState(false);
       }
       
       // Close previous IFC model
-      if (modelRef.current && ifcAPIRef.current) {
-        closeIfcModel(ifcAPIRef.current, modelRef.current.modelID)
+      if (modelRef.current && loaderRef.current && modelRef.current.modelID >= 0) {
+        await loaderRef.current.closeIfcModel(modelRef.current.modelID)
         modelRef.current = null
       }
 
@@ -768,15 +695,32 @@ const [ifcReady, setIfcReady] = useState(false);
         pickingManagerRef.current = null
       }
 
-      // Load IFC model
-      const model = await loadIfcModel(ifcAPIRef.current, file, {
+      // Keep per-element meshes so isolate/filter workflows remain correct with the prepared loader.
+      const model = await loaderRef.current.loadPreparedIfcModel(file, {
         coordinateToOrigin: true,
         verbose: false,
+        keepModelOpen: true,
+      }, {
+        generateNormals: false,
+        includeElementMap: true,
+        maxTrianglesPerMesh: 200000,
+        maxVerticesPerMesh: 300000,
+        autoMergeStrategy: {
+          lowMaxParts: 1500,
+          mediumMaxParts: 5000,
+          lowMode: "by-express-color",
+          mediumMode: "by-color",
+          highMode: "two-material",
+        },
       })
+      if (model.modelID < 0) {
+        throw new Error('Prepared IFC model is not open for interactive queries')
+      }
       modelRef.current = model
 
       // Get project info
-      const projectInfo = getProjectInfo(ifcAPIRef.current, model.modelID)
+      const projectInfo = await loaderRef.current.getProjectInfo(model.modelID)
+      const modelMetadata = await loaderRef.current.getModelMetadata(model.modelID)
       console.log('Project info:', projectInfo)
 
       // Build Babylon.js scene (materials handled by babylon-ifc-loader)
@@ -788,8 +732,7 @@ const [ifcReady, setIfcReady] = useState(false);
         generateNormals: false,
         verbose: false,
         freezeAfterBuild: true,
-        releaseRawPartsAfterBuild:true,
-        usePBRMaterials:false
+        usePBRMaterials: true,
       })
 
       // Position camera to fit model
@@ -802,37 +745,21 @@ const [ifcReady, setIfcReady] = useState(false);
         }
       }
 
-// Extract IFC GlobalId from IFCProject entity
-      let ifcGlobalId = "";
-      try {
-        // Get all IFCPROJECT elements
-        const projectIDs = ifcAPIRef.current.GetLineIDsWithType(model.modelID, WebIFC.IFCPROJECT);
-        if (projectIDs.size() > 0) {
-          const projectID = projectIDs.get(0);
-          const projectData = ifcAPIRef.current.GetLine(model.modelID, projectID, true);
-          ifcGlobalId = projectData.GlobalId?.value || "";
-        }
-      } catch (error) {
-        console.warn('Failed to extract IFC GlobalId:', error);
-        ifcGlobalId = `model_${model.modelID}`;
-      }
-
-// Notify parent component with full model data
-      if (onModelLoadedRef.current && ifcAPIRef.current) {
+      // Notify parent component with metadata returned from the worker-owned IFC model.
+      if (onModelLoadedRef.current && loaderRef.current) {
         const dimensionsByExpressID = buildDimensionsMap(meshes);
-        const lengthUnit = getIfcLengthUnitInfo(ifcAPIRef.current, model.modelID);
-        const ifcSchema = ifcAPIRef.current.GetModelSchema(model.modelID) || "Unknown IFC";
         onModelLoadedRef.current({
           projectInfo,
           modelID: model.modelID,
-          ifcGlobalId,
-          ifcSchema,
-          partCount: model.rawStats.partCount,
+          ifcGlobalId: modelMetadata.ifcGlobalId || `model_${model.modelID}`,
+          ifcSchema: modelMetadata.ifcSchema,
+          partCount: model.sourcePartCount,
           meshCount: meshes.length,
-          ifcMaterials: readIfcMaterials(ifcAPIRef.current, model.modelID, meshes),
-          ifcAPI: ifcAPIRef.current,
+          ifcMaterials: readIfcMaterials(modelMetadata.ifcMaterials, meshes),
+          loader: loaderRef.current,
+          projectTreeIndex: modelMetadata.projectTreeIndex,
           dimensionsByExpressID,
-          lengthUnitSymbol: lengthUnit.symbol,
+          lengthUnitSymbol: modelMetadata.lengthUnit.symbol,
           sourceFileName,
           sourceFileSizeBytes,
           axisRanges: buildAxisRanges(meshes),
@@ -840,8 +767,8 @@ const [ifcReady, setIfcReady] = useState(false);
       }
 
       // Setup picking handler
-      if (ifcAPIRef.current && sceneRef.current) {
-        pickingManagerRef.current = setupPickingHandler(sceneRef.current, ifcAPIRef.current, {
+      if (loaderRef.current && sceneRef.current) {
+        pickingManagerRef.current = setupPickingHandler(sceneRef.current, loaderRef.current, {
           highlightColor: toColor3(highlightColor),
           onElementPicked: (data) => {
             if (onElementPickedRef.current) {
@@ -926,9 +853,9 @@ const [ifcReady, setIfcReady] = useState(false);
 
   // Auto-load sample.ifc when WebIFC is ready
   useEffect(() => {
-    if (ifcReady && ifcAPIRef.current && sceneRef.current) {
-      loadIfcFile('./sample.ifc')
-    }
+    if (!ifcReady || !sceneRef.current || hasAutoLoadedSampleRef.current) return;
+    hasAutoLoadedSampleRef.current = true;
+    void loadIfcFile('./sample.ifc');
   }, [ifcReady, loadIfcFile])
 
 return (

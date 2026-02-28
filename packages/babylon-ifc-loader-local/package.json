@@ -1,0 +1,23 @@
+{
+  "name": "babylon-ifc-loader-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local worker-first Babylon.js IFC loader package extracted from the viewer app.",
+  "sideEffects": false,
+  "files": [
+    "src"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+    "pack:dry-run": "npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "@babylonjs/core": "^8.53.0",
+    "web-ifc": "^0.0.75"
+  }
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, RefObject } from "react";
-import type { PickMode, SectionAxis } from "../types/app";
+import type { MergePreset, PickMode, SectionAxis } from "../types/app";
 import { ClipInvertIcon, FolderOpenIcon, HelpIcon, SettingsIcon } from "./Icons";
 
 interface HeaderBreadcrumbItem {
@@ -35,6 +35,12 @@ interface AppHeaderProps {
   highlightColor: string;
   onSceneBackgroundColorChange: (color: string) => void;
   onHighlightColorChange: (color: string) => void;
+  mergePreset: MergePreset;
+  largeModelThreshold: number;
+  meshChunkSize: number;
+  onMergePresetChange: (preset: MergePreset) => void;
+  onLargeModelThresholdChange: (value: number) => void;
+  onMeshChunkSizeChange: (value: number) => void;
   showRelatedElements: boolean;
   onShowRelatedElementsChange: (show: boolean) => void;
   onClearUserSettings: () => void;
@@ -67,6 +73,12 @@ function AppHeader({
   highlightColor,
   onSceneBackgroundColorChange,
   onHighlightColorChange,
+  mergePreset,
+  largeModelThreshold,
+  meshChunkSize,
+  onMergePresetChange,
+  onLargeModelThresholdChange,
+  onMeshChunkSizeChange,
   showRelatedElements,
   onShowRelatedElementsChange,
   onClearUserSettings,
@@ -316,6 +328,39 @@ function AppHeader({
                   type="color"
                   value={highlightColor}
                   onChange={(event) => onHighlightColorChange(event.target.value)}
+                />
+              </label>
+              <label className="settings-row">
+                <span>Merge preset</span>
+                <select
+                  value={mergePreset}
+                  onChange={(event) => onMergePresetChange(event.target.value as MergePreset)}
+                >
+                  <option value="hybrid">Hybrid (express/color/two)</option>
+                  <option value="balanced">Balanced (color/color/two)</option>
+                  <option value="aggressive">Aggressive (color/two/two)</option>
+                </select>
+              </label>
+              <label className="settings-row">
+                <span>Large model threshold</span>
+                <input
+                  type="number"
+                  min={1501}
+                  max={250000}
+                  step={100}
+                  value={largeModelThreshold}
+                  onChange={(event) => onLargeModelThresholdChange(Number(event.target.value))}
+                />
+              </label>
+              <label className="settings-row">
+                <span>Mesh chunk size</span>
+                <input
+                  type="number"
+                  min={10000}
+                  max={1000000}
+                  step={10000}
+                  value={meshChunkSize}
+                  onChange={(event) => onMeshChunkSizeChange(Number(event.target.value))}
                 />
               </label>
               <label className="settings-row">

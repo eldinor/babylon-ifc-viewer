@@ -196,7 +196,7 @@
   position: absolute;
   top: 30px;
   right: 0;
-  width: 210px;
+  width: 320px;
   background-color: #16213e;
   border: 1px solid #0f3460;
   border-radius: 6px;
@@ -264,6 +264,18 @@
   padding: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.settings-row select,
+.settings-row input[type="number"] {
+  min-width: 150px;
+  height: 24px;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  padding: 0 6px;
+  background-color: #0f3460;
+  color: #cfe6ff;
+  font-size: 11px;
 }
 
 .settings-section-block {
@@ -1198,6 +1210,13 @@
   border-top-color: #4fc3f7;
   border-radius: 50%;
   animation: spin 1s linear infinite;
+}
+
+.loading-progress {
+  min-width: 200px;
+  text-align: center;
+  font-size: 12px;
+  color: #9fdcff;
 }
 
 @keyframes spin {

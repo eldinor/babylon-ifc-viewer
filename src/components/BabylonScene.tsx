@@ -4,6 +4,8 @@ import {
   Scene,
   ArcRotateCamera,
   HemisphericLight,
+  Matrix,
+  TransformNode,
   Vector3,
   Color3,
   Color4,
@@ -12,14 +14,22 @@ import {
 } from "@babylonjs/core";
 import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstrumentation";
 import { GLTF2Export } from "@babylonjs/serializers/glTF/2.0/glTFSerializer";
-import type { PickMode, SectionAxis } from "../types/app";
+import type { MergePreset, PickMode, SectionAxis } from "../types/app";
 import {
   createIfcLoader,
   buildIfcModel,
+  createFilteredMeshFromSourceMesh,
   disposeIfcModel,
   getModelBounds,
 } from "../loader";
-import type { IfcLoader, IfcMaterialInfoResult, PreparedIfcModel, ProjectInfoResult } from "../loader";
+import type {
+  IfcLoader,
+  IfcMaterialInfoResult,
+  IfcWorkerProgressEvent,
+  PreparedIfcElementBounds,
+  PreparedIfcModel,
+  ProjectInfoResult,
+} from "../loader";
 import { setupPickingHandler, type ElementPickData, type PickingManager } from "../utils/pickingUtils";
 import type { IfcProjectTreeIndex } from "../utils/projectTreeUtils";
 
@@ -36,6 +46,7 @@ export interface IfcModelData {
   ifcMaterials: IfcMaterialInfo[];
   loader: IfcLoader;
   projectTreeIndex: IfcProjectTreeIndex;
+  boundsByExpressID: Map<number, PreparedIfcElementBounds>;
   dimensionsByExpressID: Map<number, { length: number; width: number; height: number; elevation: number }>;
   lengthUnitSymbol: string;
   sourceFileName: string;
@@ -71,6 +82,9 @@ interface BabylonSceneProps {
   onElementPicked?: (data: ElementPickData | null) => void;
   sceneBackgroundColor?: string;
   highlightColor?: string;
+  mergePreset?: MergePreset;
+  largeModelThreshold?: number;
+  meshChunkSize?: number;
   sectionState?: { enabled: boolean; axis: SectionAxis; position: number | null; inverted: boolean };
   pickMode?: PickMode;
   pickingEnabled?: boolean;
@@ -88,6 +102,55 @@ function toColor3(hex: string): Color3 {
 function darkenColor(color: Color3, factor: number): Color3 {
   const clamped = Math.max(0, Math.min(1, factor));
   return new Color3(color.r * clamped, color.g * clamped, color.b * clamped);
+}
+
+function resolveAutoMergeStrategy(mergePreset: MergePreset, largeModelThreshold: number) {
+  switch (mergePreset) {
+    case "hybrid":
+      return {
+        lowMaxParts: 1500,
+        mediumMaxParts: largeModelThreshold,
+        lowMode: "by-express-color" as const,
+        mediumMode: "by-color" as const,
+        highMode: "two-material" as const,
+      };
+    case "aggressive":
+      return {
+        lowMaxParts: 1500,
+        mediumMaxParts: largeModelThreshold,
+        lowMode: "by-color" as const,
+        mediumMode: "two-material" as const,
+        highMode: "two-material" as const,
+      };
+    case "balanced":
+    default:
+      return {
+        lowMaxParts: 1500,
+        mediumMaxParts: largeModelThreshold,
+        lowMode: "by-color" as const,
+        mediumMode: "by-color" as const,
+        highMode: "two-material" as const,
+      };
+  }
+}
+
+function resolveMaxVerticesPerMesh(meshChunkSize: number): number {
+  return Math.max(3, Math.floor(meshChunkSize * 1.5));
+}
+
+function formatLoadProgress(event: IfcWorkerProgressEvent): string {
+  switch (event.phase) {
+    case "load-start":
+      return "10% Reading IFC data";
+    case "load-done":
+      return "45% IFC parsed";
+    case "prepare-start":
+      return "55% Preparing geometry";
+    case "prepare-done":
+      return "80% Geometry prepared";
+    default:
+      return "Working";
+  }
 }
 
 interface CameraViewSnapshot {
@@ -128,7 +191,8 @@ function extractMeshIfcColorHex(mesh: Scene["meshes"][number]): string | null {
 }
 
 function getMeshExpressID(mesh: Scene["meshes"][number]): number | null {
-  const metadata = mesh.metadata as { expressID?: unknown } | null;
+  const metadata = mesh.metadata as { expressID?: unknown; isOverlay?: unknown } | null;
+  if (metadata?.isOverlay === true) return null;
   return typeof metadata?.expressID === "number" && metadata.expressID >= 0 ? metadata.expressID : null;
 }
 
@@ -190,6 +254,82 @@ function buildAxisRanges(meshes: Scene["meshes"]) {
   };
 }
 
+function toDimensions(bounds: PreparedIfcElementBounds) {
+  return {
+    length: bounds.maxX - bounds.minX,
+    width: bounds.maxY - bounds.minY,
+    height: bounds.maxZ - bounds.minZ,
+    elevation: (bounds.minY + bounds.maxY) * 0.5,
+  };
+}
+
+function transformBounds(bounds: PreparedIfcElementBounds, matrix: Matrix): PreparedIfcElementBounds {
+  const corners = [
+    new Vector3(bounds.minX, bounds.minY, bounds.minZ),
+    new Vector3(bounds.minX, bounds.minY, bounds.maxZ),
+    new Vector3(bounds.minX, bounds.maxY, bounds.minZ),
+    new Vector3(bounds.minX, bounds.maxY, bounds.maxZ),
+    new Vector3(bounds.maxX, bounds.minY, bounds.minZ),
+    new Vector3(bounds.maxX, bounds.minY, bounds.maxZ),
+    new Vector3(bounds.maxX, bounds.maxY, bounds.minZ),
+    new Vector3(bounds.maxX, bounds.maxY, bounds.maxZ),
+  ];
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+
+  corners.forEach((corner) => {
+    const transformed = Vector3.TransformCoordinates(corner, matrix);
+    minX = Math.min(minX, transformed.x);
+    minY = Math.min(minY, transformed.y);
+    minZ = Math.min(minZ, transformed.z);
+    maxX = Math.max(maxX, transformed.x);
+    maxY = Math.max(maxY, transformed.y);
+    maxZ = Math.max(maxZ, transformed.z);
+  });
+
+  return { minX, minY, minZ, maxX, maxY, maxZ };
+}
+
+function transformBoundsMap(
+  boundsByExpressID: Map<number, PreparedIfcElementBounds>,
+  matrix: Matrix,
+): Map<number, PreparedIfcElementBounds> {
+  const transformed = new Map<number, PreparedIfcElementBounds>();
+  boundsByExpressID.forEach((bounds, expressID) => {
+    transformed.set(expressID, transformBounds(bounds, matrix));
+  });
+  return transformed;
+}
+
+function buildDimensionsMapFromBounds(
+  boundsByExpressID: Map<number, PreparedIfcElementBounds>,
+): Map<number, { length: number; width: number; height: number; elevation: number }> {
+  const map = new Map<number, { length: number; width: number; height: number; elevation: number }>();
+  boundsByExpressID.forEach((bounds, expressID) => {
+    const dimensions = toDimensions(bounds);
+    if ([dimensions.length, dimensions.width, dimensions.height, dimensions.elevation].every(Number.isFinite)) {
+      map.set(expressID, dimensions);
+    }
+  });
+  return map;
+}
+
+function syncTransformNode(source: TransformNode, target: TransformNode): void {
+  target.position.copyFrom(source.position);
+  if (source.rotationQuaternion) {
+    target.rotationQuaternion = source.rotationQuaternion.clone();
+  } else {
+    target.rotation.copyFrom(source.rotation);
+  }
+  target.scaling.copyFrom(source.scaling);
+  target.computeWorldMatrix(true);
+}
+
 function readIfcMaterials(materials: IfcMaterialInfoResult[], meshes: Scene["meshes"]): IfcMaterialInfo[] {
   const meshColorByExpressID = new Map<number, string>();
   meshes.forEach((mesh) => {
@@ -218,6 +358,9 @@ function BabylonScene({
   onElementPicked,
   sceneBackgroundColor = "#1b043e",
   highlightColor = "#008080",
+  mergePreset = "balanced",
+  largeModelThreshold = 45000,
+  meshChunkSize = 200000,
   sectionState,
   pickMode = "select",
   pickingEnabled = true,
@@ -228,16 +371,70 @@ function BabylonScene({
   const sceneRef = useRef<Scene | null>(null);
   const loaderRef = useRef<IfcLoader | null>(null);
   const modelRef = useRef<PreparedIfcModel | null>(null);
+  const baseRootRef = useRef<TransformNode | null>(null);
+  const filteredRootRef = useRef<TransformNode | null>(null);
   const sceneInstrumentationRef = useRef<SceneInstrumentation | null>(null);
   const pickingManagerRef = useRef<PickingManager | null>(null);
   const savedViewRef = useRef<CameraViewSnapshot | null>(null);
+  const elementBoundsRef = useRef<Map<number, PreparedIfcElementBounds>>(new Map());
   const hasAutoLoadedSampleRef = useRef(false);
   const onModelLoadedRef = useRef<typeof onModelLoaded>(onModelLoaded);
   const onSceneStatsUpdateRef = useRef<typeof onSceneStatsUpdate>(onSceneStatsUpdate);
   const onElementPickedRef = useRef<typeof onElementPicked>(onElementPicked);
+  const sceneBackgroundColorRef = useRef(sceneBackgroundColor);
   const [isLoading, setIsLoading] = useState(false);
-const [error, setError] = useState<string | null>(null);
-const [ifcReady, setIfcReady] = useState(false);
+  const [loadingProgressText, setLoadingProgressText] = useState("0% Starting");
+  const [error, setError] = useState<string | null>(null);
+  const [ifcReady, setIfcReady] = useState(false);
+
+  const disposeFilteredRoot = useCallback(() => {
+    const root = filteredRootRef.current;
+    if (!root) return;
+    root.getChildMeshes().forEach((mesh) => {
+      mesh.dispose(false, false);
+    });
+    root.dispose();
+    filteredRootRef.current = null;
+  }, []);
+
+  const buildFilteredRoot = useCallback(
+    (selectedExpressIDs: ReadonlySet<number>): number => {
+      const scene = sceneRef.current;
+      const baseRoot = baseRootRef.current;
+      if (!scene || !baseRoot) return 0;
+
+      disposeFilteredRoot();
+
+      const filteredRoot = new TransformNode("ifc-filter-root", scene);
+      syncTransformNode(baseRoot, filteredRoot);
+
+      let createdMeshCount = 0;
+      baseRoot.getChildMeshes().forEach((sourceMesh) => {
+        const overlayMetadata = sourceMesh.metadata as { isOverlay?: unknown } | null;
+        if (overlayMetadata?.isOverlay === true) return;
+
+        const filteredMesh = createFilteredMeshFromSourceMesh(sourceMesh, selectedExpressIDs);
+        if (!filteredMesh) return;
+
+        filteredMesh.parent = filteredRoot;
+        filteredMesh.material = sourceMesh.material;
+        filteredMesh.isPickable = sourceMesh.isPickable;
+        filteredMesh.visibility = sourceMesh.visibility;
+        filteredMesh.renderingGroupId = sourceMesh.renderingGroupId;
+        createdMeshCount += 1;
+      });
+
+      if (createdMeshCount === 0) {
+        filteredRoot.dispose();
+        return 0;
+      }
+
+      filteredRoot.computeWorldMatrix(true);
+      filteredRootRef.current = filteredRoot;
+      return createdMeshCount;
+    },
+    [disposeFilteredRoot],
+  );
 
   useEffect(() => {
     onModelLoadedRef.current = onModelLoaded;
@@ -250,6 +447,10 @@ const [ifcReady, setIfcReady] = useState(false);
   useEffect(() => {
     onElementPickedRef.current = onElementPicked;
   }, [onElementPicked]);
+
+  useEffect(() => {
+    sceneBackgroundColorRef.current = sceneBackgroundColor;
+  }, [sceneBackgroundColor]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -274,55 +475,75 @@ const [ifcReady, setIfcReady] = useState(false);
     };
   }, []);
 
-  const buildDimensionsMap = useCallback((meshes: Scene["meshes"]) => {
-    const map = new Map<number, { length: number; width: number; height: number; elevation: number }>();
-    meshes.forEach((mesh) => {
-      const expressID = getMeshExpressID(mesh);
-      if (expressID === null || map.has(expressID)) return;
-      const boundingInfo = mesh.getBoundingInfo();
-      if (!boundingInfo) return;
-      const ext = boundingInfo.boundingBox.extendSizeWorld;
-      const center = boundingInfo.boundingBox.centerWorld;
-      const length = ext.x * 2;
-      const width = ext.y * 2;
-      const height = ext.z * 2;
-      const elevation = center.y;
-      if ([length, width, height, elevation].every(Number.isFinite)) {
-        map.set(expressID, { length, width, height, elevation });
-      }
-    });
-    return map;
-  }, []);
-
 // Effect to show/hide meshes based on project tree subtree selection
   useEffect(() => {
-    if (!sceneRef.current) return;
+    const scene = sceneRef.current;
+    const baseRoot = baseRootRef.current;
+    if (!scene || !baseRoot) return;
+    const effectiveHiddenExpressIDs = hiddenExpressIDs ?? new Set<number>();
 
-    const meshes = sceneRef.current.meshes;
+    // Reset transient pick overlays so they do not reference disposed or hidden roots.
+    pickingManagerRef.current?.clearHighlight();
+
+    const hasSelectionFilter = visibleExpressIDs !== null;
+    const hasHiddenFilter = effectiveHiddenExpressIDs.size > 0;
+
+    if (hasSelectionFilter || hasHiddenFilter) {
+      const selectedRenderableIDs = new Set<number>();
+
+      if (visibleExpressIDs) {
+        visibleExpressIDs.forEach((expressID) => {
+          if (!effectiveHiddenExpressIDs.has(expressID) && elementBoundsRef.current.has(expressID)) {
+            selectedRenderableIDs.add(expressID);
+          }
+        });
+      } else {
+        elementBoundsRef.current.forEach((_, expressID) => {
+          if (!effectiveHiddenExpressIDs.has(expressID)) {
+            selectedRenderableIDs.add(expressID);
+          }
+        });
+      }
+
+      baseRoot.setEnabled(false);
+
+      if (selectedRenderableIDs.size === 0) {
+        disposeFilteredRoot();
+        console.log("Spatial filter: no renderable elements remain after filtering");
+        return;
+      }
+
+      const filteredMeshCount = buildFilteredRoot(selectedRenderableIDs);
+      console.log(
+        `Spatial filter: filtered root rebuilt (${filteredMeshCount} meshes for ${selectedRenderableIDs.size} visible elements)`,
+      );
+      return;
+    }
+
+    disposeFilteredRoot();
+    baseRoot.setEnabled(true);
+
     let visibleCount = 0;
     let hiddenCount = 0;
 
-    meshes.forEach((mesh) => {
+    baseRoot.getChildMeshes().forEach((mesh) => {
+      const overlayMetadata = mesh.metadata as { isOverlay?: unknown } | null;
+      if (overlayMetadata?.isOverlay === true) return;
       const meshExpressIDs = getMeshElementExpressIDs(mesh);
-      const passesIsolateFilter =
-        visibleExpressIDs && meshExpressIDs.length > 0 ? meshExpressIDs.some((expressID) => visibleExpressIDs.has(expressID)) : true;
       const notHidden =
-        meshExpressIDs.length > 0 ? meshExpressIDs.some((expressID) => !hiddenExpressIDs?.has(expressID)) : true;
-      const shouldShow = passesIsolateFilter && notHidden;
-      mesh.isVisible = shouldShow;
-      mesh.setEnabled(shouldShow);
+        meshExpressIDs.length > 0 ? meshExpressIDs.some((expressID) => !effectiveHiddenExpressIDs.has(expressID)) : true;
+      mesh.isVisible = notHidden;
+      mesh.setEnabled(notHidden);
 
-      if (shouldShow) {
+      if (notHidden) {
         visibleCount++;
       } else {
         hiddenCount++;
       }
     });
 
-    console.log(
-      `Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (project subtree: ${visibleExpressIDs ? visibleExpressIDs.size : "off"})`,
-    );
-  }, [hiddenExpressIDs, visibleExpressIDs]);
+    console.log(`Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (project subtree: off)`);
+  }, [buildFilteredRoot, disposeFilteredRoot, hiddenExpressIDs, visibleExpressIDs]);
 
   // Initialize engine and scene
   useEffect(() => {
@@ -344,6 +565,7 @@ const [ifcReady, setIfcReady] = useState(false);
 
       const scene = new Scene(engine)
       sceneRef.current = scene
+      scene.clearColor = toColor4(sceneBackgroundColorRef.current)
       sceneInstrumentationRef.current = new SceneInstrumentation(scene)
 
       // Create camera
@@ -436,6 +658,7 @@ const [ifcReady, setIfcReady] = useState(false);
       if (sceneRef.current) {
         disposeIfcModel(sceneRef.current)
       }
+      disposeFilteredRoot()
 
       if (pickingManagerRef.current) {
         pickingManagerRef.current.dispose()
@@ -455,13 +678,15 @@ const [ifcReady, setIfcReady] = useState(false);
         void loaderRef.current.dispose()
         loaderRef.current = null
       }
+      baseRootRef.current = null
+      elementBoundsRef.current = new Map()
       modelRef.current = null
       
       engineRef.current?.dispose()
       engineRef.current = null
       sceneRef.current = null
     }
-  }, [])
+  }, [disposeFilteredRoot])
 
   useEffect(() => {
     if (!sceneRef.current) return;
@@ -488,12 +713,14 @@ const [ifcReady, setIfcReady] = useState(false);
       return;
     }
 
-    const firstMesh = scene.meshes.find((mesh) => meshContainsExpressID(mesh, measurePinnedFirstExpressID));
-    manager.setPersistentHighlight(firstMesh ?? null, {
+    const firstMesh =
+      scene.meshes.find((mesh) => mesh.isEnabled() && mesh.isVisible && meshContainsExpressID(mesh, measurePinnedFirstExpressID)) ??
+      scene.meshes.find((mesh) => meshContainsExpressID(mesh, measurePinnedFirstExpressID));
+    manager.setPersistentHighlight(firstMesh ?? null, measurePinnedFirstExpressID, {
       highlightColor: darkenColor(toColor3(highlightColor), 0.55),
       highlightAlpha: 0.38,
     });
-  }, [highlightColor, measurePinnedFirstExpressID, pickMode]);
+  }, [hiddenExpressIDs, highlightColor, measurePinnedFirstExpressID, pickMode, visibleExpressIDs]);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -538,21 +765,35 @@ const [ifcReady, setIfcReady] = useState(false);
     let maxZ = Number.NEGATIVE_INFINITY;
     let hasBounds = false;
 
-    scene.meshes.forEach((mesh) => {
-      const meshExpressIDs = getMeshElementExpressIDs(mesh);
-      if (meshExpressIDs.length === 0 || !meshExpressIDs.some((expressID) => targetIDs.has(expressID))) return;
-      const boundingInfo = mesh.getBoundingInfo();
-      if (!boundingInfo) return;
-      const min = boundingInfo.boundingBox.minimumWorld;
-      const max = boundingInfo.boundingBox.maximumWorld;
-      minX = Math.min(minX, min.x);
-      minY = Math.min(minY, min.y);
-      minZ = Math.min(minZ, min.z);
-      maxX = Math.max(maxX, max.x);
-      maxY = Math.max(maxY, max.y);
-      maxZ = Math.max(maxZ, max.z);
+    targetIDs.forEach((expressID) => {
+      const bounds = elementBoundsRef.current.get(expressID);
+      if (!bounds) return;
+      minX = Math.min(minX, bounds.minX);
+      minY = Math.min(minY, bounds.minY);
+      minZ = Math.min(minZ, bounds.minZ);
+      maxX = Math.max(maxX, bounds.maxX);
+      maxY = Math.max(maxY, bounds.maxY);
+      maxZ = Math.max(maxZ, bounds.maxZ);
       hasBounds = true;
     });
+
+    if (!hasBounds) {
+      scene.meshes.forEach((mesh) => {
+        const meshExpressIDs = getMeshElementExpressIDs(mesh);
+        if (meshExpressIDs.length === 0 || !meshExpressIDs.some((expressID) => targetIDs.has(expressID))) return;
+        const boundingInfo = mesh.getBoundingInfo();
+        if (!boundingInfo) return;
+        const min = boundingInfo.boundingBox.minimumWorld;
+        const max = boundingInfo.boundingBox.maximumWorld;
+        minX = Math.min(minX, min.x);
+        minY = Math.min(minY, min.y);
+        minZ = Math.min(minZ, min.z);
+        maxX = Math.max(maxX, max.x);
+        maxY = Math.max(maxY, max.y);
+        maxZ = Math.max(maxZ, max.z);
+        hasBounds = true;
+      });
+    }
 
     if (!hasBounds) return;
     const center = new Vector3((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
@@ -666,6 +907,7 @@ const [ifcReady, setIfcReady] = useState(false);
     }
 
     setIsLoading(true)
+    setLoadingProgressText("0% Starting");
     setError(null)
 
     // Clear any existing element selection and highlights immediately
@@ -683,6 +925,9 @@ const [ifcReady, setIfcReady] = useState(false);
       if (sceneRef.current) {
         disposeIfcModel(sceneRef.current)
       }
+      disposeFilteredRoot()
+      baseRootRef.current = null
+      elementBoundsRef.current = new Map()
       
       // Close previous IFC model
       if (modelRef.current && loaderRef.current && modelRef.current.modelID >= 0) {
@@ -700,18 +945,15 @@ const [ifcReady, setIfcReady] = useState(false);
         coordinateToOrigin: true,
         verbose: false,
         keepModelOpen: true,
+        onProgress: (event) => {
+          setLoadingProgressText(formatLoadProgress(event));
+        },
       }, {
         generateNormals: false,
         includeElementMap: true,
-        maxTrianglesPerMesh: 200000,
-        maxVerticesPerMesh: 300000,
-        autoMergeStrategy: {
-          lowMaxParts: 1500,
-          mediumMaxParts: 5000,
-          lowMode: "by-express-color",
-          mediumMode: "by-color",
-          highMode: "two-material",
-        },
+        maxTrianglesPerMesh: meshChunkSize,
+        maxVerticesPerMesh: resolveMaxVerticesPerMesh(meshChunkSize),
+        autoMergeStrategy: resolveAutoMergeStrategy(mergePreset, largeModelThreshold),
       })
       if (model.modelID < 0) {
         throw new Error('Prepared IFC model is not open for interactive queries')
@@ -719,21 +961,27 @@ const [ifcReady, setIfcReady] = useState(false);
       modelRef.current = model
 
       // Get project info
+      setLoadingProgressText("90% Reading model metadata");
       const projectInfo = await loaderRef.current.getProjectInfo(model.modelID)
       const modelMetadata = await loaderRef.current.getModelMetadata(model.modelID)
       console.log('Project info:', projectInfo)
 
       // Build Babylon.js scene (materials handled by babylon-ifc-loader)
+      setLoadingProgressText("95% Building Babylon meshes");
       const currentScene = sceneRef.current
-      const { meshes } = buildIfcModel(model, currentScene, {
+      const { meshes, rootNode } = buildIfcModel(model, currentScene, {
         autoCenter: true,
         mergeMeshes: true,
         doubleSided: true,
         generateNormals: false,
         verbose: false,
         freezeAfterBuild: true,
-        usePBRMaterials: true,
+        usePBRMaterials: false,
       })
+      baseRootRef.current = rootNode
+      rootNode.computeWorldMatrix(true)
+      const boundsByExpressID = transformBoundsMap(model.boundsByExpressID, rootNode.getWorldMatrix())
+      elementBoundsRef.current = boundsByExpressID
 
       // Position camera to fit model
       const bounds = getModelBounds(meshes)
@@ -747,7 +995,7 @@ const [ifcReady, setIfcReady] = useState(false);
 
       // Notify parent component with metadata returned from the worker-owned IFC model.
       if (onModelLoadedRef.current && loaderRef.current) {
-        const dimensionsByExpressID = buildDimensionsMap(meshes);
+        const dimensionsByExpressID = buildDimensionsMapFromBounds(boundsByExpressID);
         onModelLoadedRef.current({
           projectInfo,
           modelID: model.modelID,
@@ -758,6 +1006,7 @@ const [ifcReady, setIfcReady] = useState(false);
           ifcMaterials: readIfcMaterials(modelMetadata.ifcMaterials, meshes),
           loader: loaderRef.current,
           projectTreeIndex: modelMetadata.projectTreeIndex,
+          boundsByExpressID,
           dimensionsByExpressID,
           lengthUnitSymbol: modelMetadata.lengthUnit.symbol,
           sourceFileName,
@@ -767,12 +1016,14 @@ const [ifcReady, setIfcReady] = useState(false);
       }
 
       // Setup picking handler
+      setLoadingProgressText("99% Finalizing scene");
       if (loaderRef.current && sceneRef.current) {
         pickingManagerRef.current = setupPickingHandler(sceneRef.current, loaderRef.current, {
           highlightColor: toColor3(highlightColor),
           onElementPicked: (data) => {
             if (onElementPickedRef.current) {
-              onElementPickedRef.current(data);
+              const pickBounds = elementBoundsRef.current.get(data.expressID);
+              onElementPickedRef.current(pickBounds ? { ...data, bounds: pickBounds } : data);
             }
             console.log("Picked element:", data);
           },
@@ -790,7 +1041,7 @@ const [ifcReady, setIfcReady] = useState(false);
     } finally {
       setIsLoading(false)
     }
-  }, [buildDimensionsMap, highlightColor])
+  }, [disposeFilteredRoot, highlightColor, largeModelThreshold, mergePreset, meshChunkSize])
 
   // Handle file input
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -870,6 +1121,7 @@ return (
         <div className="loading-overlay">
           <div className="loading-spinner"></div>
           <span>Loading IFC model...</span>
+          <div className="loading-progress">{loadingProgressText}</div>
         </div>
       )}
       {error && (

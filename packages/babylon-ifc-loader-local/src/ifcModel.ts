@@ -2,6 +2,7 @@ import {
   Scene,
   Mesh,
   VertexData,
+  VertexBuffer,
   Matrix,
   AbstractMesh,
   TransformNode,
@@ -573,6 +574,32 @@ export function resolveExpressIDFromMeshPick(mesh: AbstractMesh, faceId: number 
   return resolveExpressIDFromRanges(ranges, faceId);
 }
 
+export function createElementOverlayMesh(sourceMesh: AbstractMesh, expressID: number): Mesh | null {
+  const extracted = extractPreparedMeshSelection(sourceMesh, new Set([expressID]), `${sourceMesh.name}-overlay-${expressID}`);
+  if (!extracted) return null;
+
+  const { mesh: overlayMesh, modelID } = extracted;
+  overlayMesh.parent = sourceMesh.parent;
+  overlayMesh.isPickable = false;
+  overlayMesh.metadata = {
+    expressID,
+    modelID,
+    isOverlay: true,
+  };
+  return overlayMesh;
+}
+
+export function createFilteredMeshFromSourceMesh(
+  sourceMesh: AbstractMesh,
+  selectedExpressIDs: ReadonlySet<number>,
+): Mesh | null {
+  const extracted = extractPreparedMeshSelection(sourceMesh, selectedExpressIDs, `${sourceMesh.name}-filtered`);
+  if (!extracted) return null;
+
+  extracted.mesh.metadata = extracted.metadata;
+  return extracted.mesh;
+}
+
 function resolveExpressIDFromRanges(ranges: PreparedIfcElementRange[], faceId: number): number | null {
   let low = 0;
   let high = ranges.length - 1;
@@ -594,6 +621,160 @@ function resolveExpressIDFromRanges(ranges: PreparedIfcElementRange[], faceId: n
   }
 
   return null;
+}
+
+function extractPreparedMeshSelection(
+  sourceMesh: AbstractMesh,
+  selectedExpressIDs: ReadonlySet<number>,
+  meshName: string,
+): { mesh: Mesh; metadata: IfcPreparedMeshMetadata; modelID: number } | null {
+  if (!(sourceMesh instanceof Mesh)) {
+    return null;
+  }
+  if (!isPreparedMeshMetadata(sourceMesh.metadata)) {
+    return null;
+  }
+
+  const positions = sourceMesh.getVerticesData(VertexBuffer.PositionKind);
+  const indices = sourceMesh.getIndices();
+  if (!positions || !indices || positions.length === 0 || indices.length === 0) {
+    return null;
+  }
+
+  const selection = buildSelectionRanges(sourceMesh.metadata, indices.length / 3, selectedExpressIDs);
+  if (!selection) {
+    return null;
+  }
+
+  const normals = sourceMesh.getVerticesData(VertexBuffer.NormalKind);
+  const nextPositions: number[] = [];
+  const nextNormals: number[] | null = normals && normals.length === positions.length ? [] : null;
+  const nextIndices: number[] = [];
+  const vertexMap = new Map<number, number>();
+
+  for (const range of selection.sourceRanges) {
+    const triangleEnd = range.triangleStart + range.triangleCount;
+    for (let triangleIndex = range.triangleStart; triangleIndex < triangleEnd; triangleIndex++) {
+      const baseIndex = triangleIndex * 3;
+      for (let i = 0; i < 3; i += 1) {
+        const sourceVertexIndex = indices[baseIndex + i];
+        let targetVertexIndex = vertexMap.get(sourceVertexIndex);
+        if (targetVertexIndex === undefined) {
+          targetVertexIndex = nextPositions.length / 3;
+          vertexMap.set(sourceVertexIndex, targetVertexIndex);
+          const positionOffset = sourceVertexIndex * 3;
+          nextPositions.push(
+            positions[positionOffset],
+            positions[positionOffset + 1],
+            positions[positionOffset + 2],
+          );
+          if (nextNormals) {
+            nextNormals.push(
+              normals![positionOffset],
+              normals![positionOffset + 1],
+              normals![positionOffset + 2],
+            );
+          }
+        }
+        nextIndices.push(targetVertexIndex);
+      }
+    }
+  }
+
+  if (nextPositions.length === 0 || nextIndices.length === 0) {
+    return null;
+  }
+
+  const extractedMesh = new Mesh(meshName, sourceMesh.getScene());
+  extractedMesh.position.copyFrom(sourceMesh.position);
+  if (sourceMesh.rotationQuaternion) {
+    extractedMesh.rotationQuaternion = sourceMesh.rotationQuaternion.clone();
+  } else {
+    extractedMesh.rotation.copyFrom(sourceMesh.rotation);
+  }
+  extractedMesh.scaling.copyFrom(sourceMesh.scaling);
+  extractedMesh.renderingGroupId = sourceMesh.renderingGroupId;
+
+  const vertexData = new VertexData();
+  vertexData.positions = nextPositions;
+  vertexData.indices = nextIndices;
+  if (nextNormals) {
+    vertexData.normals = nextNormals;
+  }
+  vertexData.applyToMesh(extractedMesh);
+  extractedMesh.refreshBoundingInfo(true);
+
+  return {
+    mesh: extractedMesh,
+    metadata: {
+      modelID: sourceMesh.metadata.modelID,
+      expressID: selection.expressID,
+      elementRanges: selection.outputRanges,
+    },
+    modelID: sourceMesh.metadata.modelID,
+  };
+}
+
+function buildSelectionRanges(
+  metadata: IfcPreparedMeshMetadata,
+  totalTriangleCount: number,
+  selectedExpressIDs: ReadonlySet<number>,
+): { sourceRanges: PreparedIfcElementRange[]; outputRanges: PreparedIfcElementRange[]; expressID: number } | null {
+  if (selectedExpressIDs.size === 0) return null;
+
+  if (metadata.expressID >= 0) {
+    if (!selectedExpressIDs.has(metadata.expressID)) {
+      return null;
+    }
+    const range = {
+      triangleStart: 0,
+      triangleCount: totalTriangleCount,
+      expressID: metadata.expressID,
+    };
+    return {
+      sourceRanges: [range],
+      outputRanges: [range],
+      expressID: metadata.expressID,
+    };
+  }
+
+  const sourceRanges = metadata.elementRanges ?? [];
+  const selectedSourceRanges: PreparedIfcElementRange[] = [];
+  const outputRanges: PreparedIfcElementRange[] = [];
+  let outputTriangleStart = 0;
+  const uniqueExpressIDs = new Set<number>();
+
+  for (const range of sourceRanges) {
+    if (!selectedExpressIDs.has(range.expressID)) continue;
+    selectedSourceRanges.push(range);
+    uniqueExpressIDs.add(range.expressID);
+
+    const lastRange = outputRanges[outputRanges.length - 1];
+    if (
+      lastRange &&
+      lastRange.expressID === range.expressID &&
+      lastRange.triangleStart + lastRange.triangleCount === outputTriangleStart
+    ) {
+      lastRange.triangleCount += range.triangleCount;
+    } else {
+      outputRanges.push({
+        triangleStart: outputTriangleStart,
+        triangleCount: range.triangleCount,
+        expressID: range.expressID,
+      });
+    }
+    outputTriangleStart += range.triangleCount;
+  }
+
+  if (selectedSourceRanges.length === 0) {
+    return null;
+  }
+
+  return {
+    sourceRanges: selectedSourceRanges,
+    outputRanges,
+    expressID: uniqueExpressIDs.size === 1 ? outputRanges[0].expressID : -1,
+  };
 }
 
 function areAllNormalsZero(normals: Float32Array): boolean {

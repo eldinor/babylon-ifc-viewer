@@ -25,6 +25,7 @@ export type {
 export { prepareIfcModelGeometry } from "./ifcModelPreparation";
 export type {
   AutoMergeStrategy,
+  PreparedIfcElementBounds,
   GeometryMergeMode,
   GeometryPreparationTier,
   GeometryPreparationOptions,
@@ -34,5 +35,13 @@ export type {
   PreparedIfcTelemetry,
 } from "./ifcModelPreparation";
 
-export { buildIfcModel, disposeIfcModel, getModelBounds, centerModelAtOrigin, resolveExpressIDFromMeshPick } from "./ifcModel";
+export {
+  buildIfcModel,
+  disposeIfcModel,
+  getModelBounds,
+  centerModelAtOrigin,
+  resolveExpressIDFromMeshPick,
+  createElementOverlayMesh,
+  createFilteredMeshFromSourceMesh,
+} from "./ifcModel";
 export type { IfcPreparedMeshMetadata, SceneBuildOptions, SceneBuildResult, BuildStats, BoundsInfo } from "./ifcModel";

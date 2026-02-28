@@ -13,7 +13,7 @@ const GROUPS: Array<{ title: string; items: ShortcutItem[] }> = [
   {
     title: "General",
     items: [
-      { keys: ["?"], action: "Open/close shortcuts" },
+      { keys: ["Shift+?"], action: "Open/close shortcuts" },
       { keys: ["Esc"], action: "Close shortcuts dialog" },
     ],
   },
@@ -64,7 +64,7 @@ function KeyboardShortcuts({ isOpen, onClose, sidebarCollapsed }: KeyboardShortc
     >
       <div className="shortcuts-panel" onClick={(event) => event.stopPropagation()}>
         <div className="shortcuts-header">
-          <h3>Keyboard Shortcuts</h3>
+          <h3>Keyboard Shortcuts (SHIFT+?)</h3>
           <button type="button" className="shortcuts-close-btn" onClick={onClose} title="Close">
             x
           </button>

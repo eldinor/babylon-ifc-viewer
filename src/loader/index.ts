@@ -5,12 +5,14 @@ export type {
   IfcMaterialInfoResult,
 } from "../../packages/babylon-ifc-loader-local/src/ifcInit";
 export type { IfcLoader } from "../../packages/babylon-ifc-loader-local/src/ifcLoader";
-export type { ElementDataResult } from "../../packages/babylon-ifc-loader-local/src/ifcWorkerClient";
-export type { PreparedIfcModel } from "../../packages/babylon-ifc-loader-local/src/ifcModelPreparation";
+export type { ElementDataResult, IfcWorkerProgressEvent } from "../../packages/babylon-ifc-loader-local/src/ifcWorkerClient";
+export type { PreparedIfcElementBounds, PreparedIfcModel } from "../../packages/babylon-ifc-loader-local/src/ifcModelPreparation";
 
 export {
   buildIfcModel,
   disposeIfcModel,
   getModelBounds,
   resolveExpressIDFromMeshPick,
+  createElementOverlayMesh,
+  createFilteredMeshFromSourceMesh,
 } from "../../packages/babylon-ifc-loader-local/src/ifcModel";

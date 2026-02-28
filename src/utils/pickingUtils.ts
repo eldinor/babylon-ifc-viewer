@@ -1,8 +1,8 @@
-import { Scene, AbstractMesh, Color3, PointerEventTypes, Plane, Vector3 } from "@babylonjs/core";
+import { Scene, AbstractMesh, Color3, PointerEventTypes, Plane, StandardMaterial, Vector3 } from "@babylonjs/core";
 import type { PointerInfo } from "@babylonjs/core/Events/pointerEvents";
 import type { Observer } from "@babylonjs/core/Misc/observable";
-import type { IfcLoader } from "../loader";
-import { resolveExpressIDFromMeshPick } from "../loader";
+import type { IfcLoader, PreparedIfcElementBounds } from "../loader";
+import { createElementOverlayMesh, resolveExpressIDFromMeshPick } from "../loader";
 
 interface IfcElement {
   type?: number;
@@ -26,9 +26,12 @@ function isIfcMeshMetadata(metadata: unknown): metadata is IfcMeshMetadata {
  * Information about a picked IFC element
  */
 export interface ElementPickData {
-  mesh: AbstractMesh;
   expressID: number;
   modelID: number;
+  sourceMesh: AbstractMesh;
+  faceId: number | null | undefined;
+  pickedPoint: Vector3 | null;
+  bounds?: PreparedIfcElementBounds;
   typeName: string;
   elementName: string;
   element: IfcElement;
@@ -84,7 +87,7 @@ export class PickingManager {
 
       const resolvedPick = this.resolveVisiblePick(pointerInfo);
       if (resolvedPick) {
-        this.handleMeshClick(resolvedPick.mesh, resolvedPick.faceId, 1);
+        this.handleMeshClick(resolvedPick.mesh, resolvedPick.faceId, resolvedPick.pickedPoint, 1);
       } else {
         this.clearHighlight();
       }
@@ -97,7 +100,7 @@ export class PickingManager {
 
       const resolvedPick = this.resolveVisiblePick(pointerInfo);
       if (resolvedPick) {
-        this.handleMeshClick(resolvedPick.mesh, resolvedPick.faceId, 2);
+        this.handleMeshClick(resolvedPick.mesh, resolvedPick.faceId, resolvedPick.pickedPoint, 2);
       }
     }, PointerEventTypes.POINTERDOUBLETAP);
   }
@@ -121,10 +124,12 @@ export class PickingManager {
     return clipPlanes.some((plane) => plane.dotCoordinate(point) > 0);
   }
 
-  private resolveVisiblePick(pointerInfo: PointerInfo): { mesh: AbstractMesh; faceId: number | null | undefined } | null {
+  private resolveVisiblePick(
+    pointerInfo: PointerInfo,
+  ): { mesh: AbstractMesh; faceId: number | null | undefined; pickedPoint: Vector3 | null } | null {
     const firstPick = pointerInfo.pickInfo;
     if (firstPick?.hit && firstPick.pickedMesh && firstPick.pickedPoint && !this.isPointClipped(firstPick.pickedPoint)) {
-      return { mesh: firstPick.pickedMesh, faceId: firstPick.faceId };
+      return { mesh: firstPick.pickedMesh, faceId: firstPick.faceId, pickedPoint: firstPick.pickedPoint.clone() };
     }
 
     const allHits = this.scene.multiPick(this.scene.pointerX, this.scene.pointerY);
@@ -133,7 +138,7 @@ export class PickingManager {
     for (const hit of allHits) {
       if (!hit.hit || !hit.pickedMesh || !hit.pickedPoint) continue;
       if (this.isPointClipped(hit.pickedPoint)) continue;
-      return { mesh: hit.pickedMesh, faceId: hit.faceId };
+      return { mesh: hit.pickedMesh, faceId: hit.faceId, pickedPoint: hit.pickedPoint.clone() };
     }
 
     return null;
@@ -142,7 +147,12 @@ export class PickingManager {
   /**
    * Handle mesh click event
    */
-  private handleMeshClick(mesh: AbstractMesh, faceId: number | null | undefined, clickCount: number): void {
+  private handleMeshClick(
+    mesh: AbstractMesh,
+    faceId: number | null | undefined,
+    pickedPoint: Vector3 | null,
+    clickCount: number,
+  ): void {
     const metadata = mesh.metadata as unknown;
 
     if (isIfcMeshMetadata(metadata)) {
@@ -154,7 +164,7 @@ export class PickingManager {
         return;
       }
 
-      void this.loadElementAndHighlight(mesh, expressID, modelID, clickCount);
+      void this.loadElementAndHighlight(mesh, expressID, modelID, faceId, pickedPoint, clickCount);
     } else {
       // Clicked on mesh without IFC metadata
       this.clearHighlight();
@@ -165,6 +175,8 @@ export class PickingManager {
     mesh: AbstractMesh,
     expressID: number,
     modelID: number,
+    faceId: number | null | undefined,
+    pickedPoint: Vector3 | null,
     clickCount: number,
   ): Promise<void> {
     try {
@@ -174,19 +186,23 @@ export class PickingManager {
       // Remove previous primary highlight
       this.clearPrimaryHighlight();
 
-      // Add overlay to picked mesh
-      mesh.renderOverlay = true;
-      mesh.overlayColor = this.options.highlightColor!;
-      mesh.overlayAlpha = this.options.highlightAlpha!;
-      this.currentHighlightedMesh = mesh;
+      // Add overlay mesh for the picked element.
+      const overlayMesh = this.buildHighlightOverlay(mesh, expressID, this.options);
+      if (!overlayMesh) {
+        this.clearHighlight();
+        return;
+      }
+      this.currentHighlightedMesh = overlayMesh;
       this.currentHighlightedExpressID = expressID;
 
       // Trigger callback if provided
       if (this.options.onElementPicked) {
         this.options.onElementPicked({
-          mesh,
           expressID,
           modelID,
+          sourceMesh: mesh,
+          faceId,
+          pickedPoint,
           typeName,
           elementName,
           element: element as IfcElement,
@@ -209,12 +225,12 @@ export class PickingManager {
     const metadata = mesh.metadata as unknown;
 
     if (isIfcMeshMetadata(metadata)) {
-      // Apply highlight
-      mesh.renderOverlay = true;
-      mesh.overlayColor = options?.highlightColor || this.options.highlightColor!;
-      mesh.overlayAlpha = options?.highlightAlpha || this.options.highlightAlpha!;
-      this.currentHighlightedMesh = mesh;
-      this.currentHighlightedExpressID = metadata.expressID >= 0 ? metadata.expressID : null;
+      const expressID = metadata.expressID >= 0 ? metadata.expressID : null;
+      if (expressID === null) return;
+      const overlayMesh = this.buildHighlightOverlay(mesh, expressID, options);
+      if (!overlayMesh) return;
+      this.currentHighlightedMesh = overlayMesh;
+      this.currentHighlightedExpressID = expressID;
     }
   }
 
@@ -228,7 +244,7 @@ export class PickingManager {
 
   private clearPrimaryHighlight(): void {
     if (this.currentHighlightedMesh) {
-      this.currentHighlightedMesh.renderOverlay = false;
+      this.disposeHighlightOverlay(this.currentHighlightedMesh);
       this.currentHighlightedMesh = null;
       this.currentHighlightedExpressID = null;
 
@@ -241,7 +257,7 @@ export class PickingManager {
 
   private clearPersistentHighlight(): void {
     if (this.persistentHighlightedMesh) {
-      this.persistentHighlightedMesh.renderOverlay = false;
+      this.disposeHighlightOverlay(this.persistentHighlightedMesh);
       this.persistentHighlightedMesh = null;
     }
   }
@@ -254,8 +270,10 @@ export class PickingManager {
 
     // Update current highlight if exists
     if (this.currentHighlightedMesh) {
-      this.currentHighlightedMesh.overlayColor = this.options.highlightColor!;
-      this.currentHighlightedMesh.overlayAlpha = this.options.highlightAlpha!;
+      this.applyHighlightMaterial(this.currentHighlightedMesh, this.options);
+    }
+    if (this.persistentHighlightedMesh) {
+      this.applyHighlightMaterial(this.persistentHighlightedMesh, this.options);
     }
   }
 
@@ -270,17 +288,18 @@ export class PickingManager {
     return this.currentHighlightedExpressID;
   }
 
-  setPersistentHighlight(mesh: AbstractMesh | null, options?: PickingOptions): void {
+  setPersistentHighlight(mesh: AbstractMesh | null, expressID?: number | null, options?: PickingOptions): void {
     this.clearPersistentHighlight();
     if (!mesh || mesh === this.currentHighlightedMesh) return;
 
     const metadata = mesh.metadata as unknown;
     if (!isIfcMeshMetadata(metadata)) return;
+    const targetExpressID = typeof expressID === "number" ? expressID : metadata.expressID >= 0 ? metadata.expressID : null;
+    if (targetExpressID === null) return;
 
-    mesh.renderOverlay = true;
-    mesh.overlayColor = options?.highlightColor || this.options.highlightColor!;
-    mesh.overlayAlpha = options?.highlightAlpha || this.options.highlightAlpha!;
-    this.persistentHighlightedMesh = mesh;
+    const overlayMesh = this.buildHighlightOverlay(mesh, targetExpressID, options);
+    if (!overlayMesh) return;
+    this.persistentHighlightedMesh = overlayMesh;
   }
 
   setEnabled(enabled: boolean): void {
@@ -303,6 +322,41 @@ export class PickingManager {
       this.scene.onPointerObservable.remove(this.pointerDoubleObserver);
       this.pointerDoubleObserver = null;
     }
+  }
+
+  private buildHighlightOverlay(
+    sourceMesh: AbstractMesh,
+    expressID: number,
+    options?: PickingOptions,
+  ): AbstractMesh | null {
+    const overlayMesh = createElementOverlayMesh(sourceMesh, expressID);
+    if (!overlayMesh) return null;
+    this.applyHighlightMaterial(overlayMesh, options);
+    return overlayMesh;
+  }
+
+  private applyHighlightMaterial(mesh: AbstractMesh, options?: PickingOptions): void {
+    let material = mesh.material instanceof StandardMaterial ? mesh.material : null;
+    if (!material) {
+      material = new StandardMaterial(`ifc-highlight-${mesh.uniqueId}`, this.scene);
+      material.disableLighting = true;
+      material.backFaceCulling = false;
+      material.specularColor = Color3.Black();
+      material.zOffset = -2;
+      mesh.material = material;
+    }
+
+    const highlightColor = options?.highlightColor || this.options.highlightColor!;
+    material.emissiveColor = highlightColor.clone();
+    material.diffuseColor = highlightColor.clone();
+    material.alpha = options?.highlightAlpha ?? this.options.highlightAlpha!;
+  }
+
+  private disposeHighlightOverlay(mesh: AbstractMesh): void {
+    if (mesh.material) {
+      mesh.material.dispose();
+    }
+    mesh.dispose(false, true);
   }
 }
 

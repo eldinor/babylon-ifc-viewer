@@ -39,6 +39,15 @@ export interface PreparedIfcMeshData {
   elementRanges?: PreparedIfcElementRange[];
 }
 
+export interface PreparedIfcElementBounds {
+  minX: number;
+  minY: number;
+  minZ: number;
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+}
+
 export interface PreparedIfcTelemetry {
   tier: GeometryPreparationTier;
   opaqueMeshCount: number;
@@ -56,6 +65,7 @@ export interface PreparedIfcModel {
   invalidPartCount: number;
   mergedGroupCount: number;
   mergeMode: GeometryMergeMode;
+  boundsByExpressID: Map<number, PreparedIfcElementBounds>;
   telemetry: PreparedIfcTelemetry;
   meshes: PreparedIfcMeshData[];
 }
@@ -556,6 +566,62 @@ function countElementRanges(meshes: PreparedIfcMeshData[]): number {
   return count;
 }
 
+function updateBoundsByExpressID(
+  boundsByExpressID: Map<number, PreparedIfcElementBounds>,
+  part: InternalPreparedPart,
+): void {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+
+  for (let i = 0; i < part.positions.length; i += 3) {
+    const x = part.positions[i];
+    const y = part.positions[i + 1];
+    const z = part.positions[i + 2];
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    minZ = Math.min(minZ, z);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+    maxZ = Math.max(maxZ, z);
+  }
+
+  if (
+    !Number.isFinite(minX) ||
+    !Number.isFinite(minY) ||
+    !Number.isFinite(minZ) ||
+    !Number.isFinite(maxX) ||
+    !Number.isFinite(maxY) ||
+    !Number.isFinite(maxZ)
+  ) {
+    return;
+  }
+
+  const existing = boundsByExpressID.get(part.expressID);
+  if (existing) {
+    existing.minX = Math.min(existing.minX, minX);
+    existing.minY = Math.min(existing.minY, minY);
+    existing.minZ = Math.min(existing.minZ, minZ);
+    existing.maxX = Math.max(existing.maxX, maxX);
+    existing.maxY = Math.max(existing.maxY, maxY);
+    existing.maxZ = Math.max(existing.maxZ, maxZ);
+    return;
+  }
+
+  boundsByExpressID.set(part.expressID, {
+    minX,
+    minY,
+    minZ,
+    maxX,
+    maxY,
+    maxZ,
+  });
+}
+
 export function prepareIfcModelGeometry(
   model: RawIfcModel,
   options: GeometryPreparationOptions = {},
@@ -569,6 +635,7 @@ export function prepareIfcModelGeometry(
   const mergeResolution = resolveMergeMode(model, opts);
   const includeElementMap = opts.includeElementMap !== false;
   const chunkLimits = toChunkLimits(opts);
+  const boundsByExpressID = new Map<number, PreparedIfcElementBounds>();
 
   let invalidPartCount = 0;
   const preparedParts: InternalPreparedPart[] = [];
@@ -580,7 +647,9 @@ export function prepareIfcModelGeometry(
       invalidPartCount++;
       continue;
     }
-    preparedParts.push(createPreparedPart(part, Boolean(opts.generateNormals)));
+    const preparedPart = createPreparedPart(part, Boolean(opts.generateNormals));
+    preparedParts.push(preparedPart);
+    updateBoundsByExpressID(boundsByExpressID, preparedPart);
   }
 
   const groups = new Map<string, InternalPreparedPart[]>();
@@ -632,6 +701,7 @@ export function prepareIfcModelGeometry(
     invalidPartCount,
     mergedGroupCount,
     mergeMode: mergeResolution.mergeMode,
+    boundsByExpressID,
     telemetry: {
       tier: mergeResolution.tier,
       opaqueMeshCount: meshKinds.opaque,

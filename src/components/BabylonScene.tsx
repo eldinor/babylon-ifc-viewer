@@ -22,7 +22,14 @@ import {
   disposeIfcModel,
   getModelBounds,
 } from "../loader";
-import type { IfcLoader, IfcMaterialInfoResult, PreparedIfcElementBounds, PreparedIfcModel, ProjectInfoResult } from "../loader";
+import type {
+  IfcLoader,
+  IfcMaterialInfoResult,
+  IfcWorkerProgressEvent,
+  PreparedIfcElementBounds,
+  PreparedIfcModel,
+  ProjectInfoResult,
+} from "../loader";
 import { setupPickingHandler, type ElementPickData, type PickingManager } from "../utils/pickingUtils";
 import type { IfcProjectTreeIndex } from "../utils/projectTreeUtils";
 
@@ -129,6 +136,21 @@ function resolveAutoMergeStrategy(mergePreset: MergePreset, largeModelThreshold:
 
 function resolveMaxVerticesPerMesh(meshChunkSize: number): number {
   return Math.max(3, Math.floor(meshChunkSize * 1.5));
+}
+
+function formatLoadProgress(event: IfcWorkerProgressEvent): string {
+  switch (event.phase) {
+    case "load-start":
+      return "10% Reading IFC data";
+    case "load-done":
+      return "45% IFC parsed";
+    case "prepare-start":
+      return "55% Preparing geometry";
+    case "prepare-done":
+      return "80% Geometry prepared";
+    default:
+      return "Working";
+  }
 }
 
 interface CameraViewSnapshot {
@@ -361,8 +383,9 @@ function BabylonScene({
   const onElementPickedRef = useRef<typeof onElementPicked>(onElementPicked);
   const sceneBackgroundColorRef = useRef(sceneBackgroundColor);
   const [isLoading, setIsLoading] = useState(false);
-const [error, setError] = useState<string | null>(null);
-const [ifcReady, setIfcReady] = useState(false);
+  const [loadingProgressText, setLoadingProgressText] = useState("0% Starting");
+  const [error, setError] = useState<string | null>(null);
+  const [ifcReady, setIfcReady] = useState(false);
 
   const disposeFilteredRoot = useCallback(() => {
     const root = filteredRootRef.current;
@@ -884,6 +907,7 @@ const [ifcReady, setIfcReady] = useState(false);
     }
 
     setIsLoading(true)
+    setLoadingProgressText("0% Starting");
     setError(null)
 
     // Clear any existing element selection and highlights immediately
@@ -921,6 +945,9 @@ const [ifcReady, setIfcReady] = useState(false);
         coordinateToOrigin: true,
         verbose: false,
         keepModelOpen: true,
+        onProgress: (event) => {
+          setLoadingProgressText(formatLoadProgress(event));
+        },
       }, {
         generateNormals: false,
         includeElementMap: true,
@@ -934,11 +961,13 @@ const [ifcReady, setIfcReady] = useState(false);
       modelRef.current = model
 
       // Get project info
+      setLoadingProgressText("90% Reading model metadata");
       const projectInfo = await loaderRef.current.getProjectInfo(model.modelID)
       const modelMetadata = await loaderRef.current.getModelMetadata(model.modelID)
       console.log('Project info:', projectInfo)
 
       // Build Babylon.js scene (materials handled by babylon-ifc-loader)
+      setLoadingProgressText("95% Building Babylon meshes");
       const currentScene = sceneRef.current
       const { meshes, rootNode } = buildIfcModel(model, currentScene, {
         autoCenter: true,
@@ -987,6 +1016,7 @@ const [ifcReady, setIfcReady] = useState(false);
       }
 
       // Setup picking handler
+      setLoadingProgressText("99% Finalizing scene");
       if (loaderRef.current && sceneRef.current) {
         pickingManagerRef.current = setupPickingHandler(sceneRef.current, loaderRef.current, {
           highlightColor: toColor3(highlightColor),
@@ -1091,6 +1121,7 @@ return (
         <div className="loading-overlay">
           <div className="loading-spinner"></div>
           <span>Loading IFC model...</span>
+          <div className="loading-progress">{loadingProgressText}</div>
         </div>
       )}
       {error && (

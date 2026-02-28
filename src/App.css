@@ -1212,6 +1212,13 @@
   animation: spin 1s linear infinite;
 }
 
+.loading-progress {
+  min-width: 200px;
+  text-align: center;
+  font-size: 12px;
+  color: #9fdcff;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

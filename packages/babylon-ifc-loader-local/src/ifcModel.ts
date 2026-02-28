@@ -575,6 +575,59 @@ export function resolveExpressIDFromMeshPick(mesh: AbstractMesh, faceId: number 
 }
 
 export function createElementOverlayMesh(sourceMesh: AbstractMesh, expressID: number): Mesh | null {
+  const extracted = extractPreparedMeshSelection(sourceMesh, new Set([expressID]), `${sourceMesh.name}-overlay-${expressID}`);
+  if (!extracted) return null;
+
+  const { mesh: overlayMesh, modelID } = extracted;
+  overlayMesh.parent = sourceMesh.parent;
+  overlayMesh.isPickable = false;
+  overlayMesh.metadata = {
+    expressID,
+    modelID,
+    isOverlay: true,
+  };
+  return overlayMesh;
+}
+
+export function createFilteredMeshFromSourceMesh(
+  sourceMesh: AbstractMesh,
+  selectedExpressIDs: ReadonlySet<number>,
+): Mesh | null {
+  const extracted = extractPreparedMeshSelection(sourceMesh, selectedExpressIDs, `${sourceMesh.name}-filtered`);
+  if (!extracted) return null;
+
+  extracted.mesh.metadata = extracted.metadata;
+  return extracted.mesh;
+}
+
+function resolveExpressIDFromRanges(ranges: PreparedIfcElementRange[], faceId: number): number | null {
+  let low = 0;
+  let high = ranges.length - 1;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const range = ranges[mid];
+    const start = range.triangleStart;
+    const end = start + range.triangleCount;
+    if (faceId < start) {
+      high = mid - 1;
+      continue;
+    }
+    if (faceId >= end) {
+      low = mid + 1;
+      continue;
+    }
+    return range.expressID;
+  }
+
+  return null;
+}
+
+function extractPreparedMeshSelection(
+  sourceMesh: AbstractMesh,
+  selectedExpressIDs: ReadonlySet<number>,
+  meshName: string,
+): { mesh: Mesh; metadata: IfcPreparedMeshMetadata; modelID: number } | null {
   if (!(sourceMesh instanceof Mesh)) {
     return null;
   }
@@ -588,18 +641,18 @@ export function createElementOverlayMesh(sourceMesh: AbstractMesh, expressID: nu
     return null;
   }
 
-  const normals = sourceMesh.getVerticesData(VertexBuffer.NormalKind);
-  const ranges = getRangesForExpressID(sourceMesh.metadata, indices.length / 3, expressID);
-  if (!ranges || ranges.length === 0) {
+  const selection = buildSelectionRanges(sourceMesh.metadata, indices.length / 3, selectedExpressIDs);
+  if (!selection) {
     return null;
   }
 
+  const normals = sourceMesh.getVerticesData(VertexBuffer.NormalKind);
   const nextPositions: number[] = [];
   const nextNormals: number[] | null = normals && normals.length === positions.length ? [] : null;
   const nextIndices: number[] = [];
   const vertexMap = new Map<number, number>();
 
-  for (const range of ranges) {
+  for (const range of selection.sourceRanges) {
     const triangleEnd = range.triangleStart + range.triangleCount;
     for (let triangleIndex = range.triangleStart; triangleIndex < triangleEnd; triangleIndex++) {
       const baseIndex = triangleIndex * 3;
@@ -632,22 +685,15 @@ export function createElementOverlayMesh(sourceMesh: AbstractMesh, expressID: nu
     return null;
   }
 
-  const overlayMesh = new Mesh(`${sourceMesh.name}-overlay-${expressID}`, sourceMesh.getScene());
-  overlayMesh.parent = sourceMesh.parent;
-  overlayMesh.position.copyFrom(sourceMesh.position);
+  const extractedMesh = new Mesh(meshName, sourceMesh.getScene());
+  extractedMesh.position.copyFrom(sourceMesh.position);
   if (sourceMesh.rotationQuaternion) {
-    overlayMesh.rotationQuaternion = sourceMesh.rotationQuaternion.clone();
+    extractedMesh.rotationQuaternion = sourceMesh.rotationQuaternion.clone();
   } else {
-    overlayMesh.rotation.copyFrom(sourceMesh.rotation);
+    extractedMesh.rotation.copyFrom(sourceMesh.rotation);
   }
-  overlayMesh.scaling.copyFrom(sourceMesh.scaling);
-  overlayMesh.renderingGroupId = sourceMesh.renderingGroupId;
-  overlayMesh.isPickable = false;
-  overlayMesh.metadata = {
-    expressID,
-    modelID: sourceMesh.metadata.modelID,
-    isOverlay: true,
-  };
+  extractedMesh.scaling.copyFrom(sourceMesh.scaling);
+  extractedMesh.renderingGroupId = sourceMesh.renderingGroupId;
 
   const vertexData = new VertexData();
   vertexData.positions = nextPositions;
@@ -655,53 +701,80 @@ export function createElementOverlayMesh(sourceMesh: AbstractMesh, expressID: nu
   if (nextNormals) {
     vertexData.normals = nextNormals;
   }
-  vertexData.applyToMesh(overlayMesh);
-  overlayMesh.refreshBoundingInfo(true);
-  return overlayMesh;
+  vertexData.applyToMesh(extractedMesh);
+  extractedMesh.refreshBoundingInfo(true);
+
+  return {
+    mesh: extractedMesh,
+    metadata: {
+      modelID: sourceMesh.metadata.modelID,
+      expressID: selection.expressID,
+      elementRanges: selection.outputRanges,
+    },
+    modelID: sourceMesh.metadata.modelID,
+  };
 }
 
-function resolveExpressIDFromRanges(ranges: PreparedIfcElementRange[], faceId: number): number | null {
-  let low = 0;
-  let high = ranges.length - 1;
-
-  while (low <= high) {
-    const mid = (low + high) >> 1;
-    const range = ranges[mid];
-    const start = range.triangleStart;
-    const end = start + range.triangleCount;
-    if (faceId < start) {
-      high = mid - 1;
-      continue;
-    }
-    if (faceId >= end) {
-      low = mid + 1;
-      continue;
-    }
-    return range.expressID;
-  }
-
-  return null;
-}
-
-function getRangesForExpressID(
+function buildSelectionRanges(
   metadata: IfcPreparedMeshMetadata,
   totalTriangleCount: number,
-  expressID: number,
-): PreparedIfcElementRange[] | null {
+  selectedExpressIDs: ReadonlySet<number>,
+): { sourceRanges: PreparedIfcElementRange[]; outputRanges: PreparedIfcElementRange[]; expressID: number } | null {
+  if (selectedExpressIDs.size === 0) return null;
+
   if (metadata.expressID >= 0) {
-    return metadata.expressID === expressID
-      ? [
-          {
-            triangleStart: 0,
-            triangleCount: totalTriangleCount,
-            expressID,
-          },
-        ]
-      : null;
+    if (!selectedExpressIDs.has(metadata.expressID)) {
+      return null;
+    }
+    const range = {
+      triangleStart: 0,
+      triangleCount: totalTriangleCount,
+      expressID: metadata.expressID,
+    };
+    return {
+      sourceRanges: [range],
+      outputRanges: [range],
+      expressID: metadata.expressID,
+    };
   }
 
-  const ranges = metadata.elementRanges?.filter((range) => range.expressID === expressID) ?? [];
-  return ranges.length > 0 ? ranges : null;
+  const sourceRanges = metadata.elementRanges ?? [];
+  const selectedSourceRanges: PreparedIfcElementRange[] = [];
+  const outputRanges: PreparedIfcElementRange[] = [];
+  let outputTriangleStart = 0;
+  const uniqueExpressIDs = new Set<number>();
+
+  for (const range of sourceRanges) {
+    if (!selectedExpressIDs.has(range.expressID)) continue;
+    selectedSourceRanges.push(range);
+    uniqueExpressIDs.add(range.expressID);
+
+    const lastRange = outputRanges[outputRanges.length - 1];
+    if (
+      lastRange &&
+      lastRange.expressID === range.expressID &&
+      lastRange.triangleStart + lastRange.triangleCount === outputTriangleStart
+    ) {
+      lastRange.triangleCount += range.triangleCount;
+    } else {
+      outputRanges.push({
+        triangleStart: outputTriangleStart,
+        triangleCount: range.triangleCount,
+        expressID: range.expressID,
+      });
+    }
+    outputTriangleStart += range.triangleCount;
+  }
+
+  if (selectedSourceRanges.length === 0) {
+    return null;
+  }
+
+  return {
+    sourceRanges: selectedSourceRanges,
+    outputRanges,
+    expressID: uniqueExpressIDs.size === 1 ? outputRanges[0].expressID : -1,
+  };
 }
 
 function areAllNormalsZero(normals: Float32Array): boolean {

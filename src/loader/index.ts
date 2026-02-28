@@ -14,4 +14,5 @@ export {
   getModelBounds,
   resolveExpressIDFromMeshPick,
   createElementOverlayMesh,
+  createFilteredMeshFromSourceMesh,
 } from "../../packages/babylon-ifc-loader-local/src/ifcModel";

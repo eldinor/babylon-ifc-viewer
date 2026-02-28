@@ -42,5 +42,6 @@ export {
   centerModelAtOrigin,
   resolveExpressIDFromMeshPick,
   createElementOverlayMesh,
+  createFilteredMeshFromSourceMesh,
 } from "./ifcModel";
 export type { IfcPreparedMeshMetadata, SceneBuildOptions, SceneBuildResult, BuildStats, BoundsInfo } from "./ifcModel";

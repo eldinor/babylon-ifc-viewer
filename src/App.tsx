@@ -219,6 +219,16 @@ function App() {
     handleModelCleared,
   );
 
+  const toRenderableExpressIDSet = useCallback((ids: Iterable<number>): Set<number> => {
+    const next = new Set<number>();
+    for (const id of ids) {
+      if (!modelData || modelData.boundsByExpressID.has(id)) {
+        next.add(id);
+      }
+    }
+    return next;
+  }, [modelData]);
+
   const breadcrumbs = useMemo(() => {
     if (!projectTreeIndex || selectedProjectExpressID === null) return [] as Array<{ expressID: number; name: string }>;
     const chain: Array<{ expressID: number; name: string }> = [];
@@ -404,10 +414,20 @@ function App() {
 
   const handleDisplaySearchResults = useCallback((expressIDs: number[]) => {
     if (expressIDs.length === 0) return;
-    setVisibleExpressIDs(new Set(expressIDs));
+    const expandedIDs = new Set<number>();
+    expressIDs.forEach((id) => {
+      const ids = projectTreeIndex?.nodes.has(id) ? collectSubtreeExpressIDs(id, projectTreeIndex) : [id];
+      ids.forEach((expandedID) => expandedIDs.add(expandedID));
+    });
+    setVisibleExpressIDs(toRenderableExpressIDSet(expandedIDs));
+    setHiddenExpressIDs((prev) => {
+      const next = new Set(prev);
+      expandedIDs.forEach((id) => next.delete(id));
+      return next;
+    });
     setSelectedProjectExpressID(null);
     setSelectedProjectExpressIDs(new Set());
-  }, []);
+  }, [projectTreeIndex, toRenderableExpressIDSet]);
 
   const handleSetNodeVisibility = useCallback((expressID: number, visible: boolean) => {
     if (!projectTreeIndex) return;
@@ -467,7 +487,12 @@ function App() {
 
     setSelectedProjectExpressIDs(nextSelected);
     setSelectedProjectExpressID(primaryExpressID);
-    setVisibleExpressIDs(subtreeIDs);
+    setVisibleExpressIDs(toRenderableExpressIDSet(subtreeIDs));
+    setHiddenExpressIDs((prev) => {
+      const next = new Set(prev);
+      subtreeIDs.forEach((id) => next.delete(id));
+      return next;
+    });
     if (modelData) {
       const primaryNode = projectTreeIndex.nodes.get(primaryExpressID) ?? node;
       const fallbackDimensions = modelData.dimensionsByExpressID.get(primaryNode.expressID);
@@ -491,7 +516,7 @@ function App() {
     if (alwaysFitEnabled && window.fitToExpressIDs) {
       window.fitToExpressIDs(Array.from(subtreeIDs));
     }
-  }, [alwaysFitEnabled, clearProjectTreeSelection, modelData, projectTreeIndex, selectedProjectExpressIDs]);
+  }, [alwaysFitEnabled, clearProjectTreeSelection, modelData, projectTreeIndex, selectedProjectExpressIDs, toRenderableExpressIDSet]);
 
   const handleSelectRelatedExpressID = useCallback((
     expressID: number,
@@ -547,7 +572,7 @@ function App() {
         // Keep unfiltered scene unfiltered; related selections should not force filtering.
         return null;
       }
-      return new Set(visibleFromSelection);
+      return toRenderableExpressIDSet(visibleFromSelection);
     });
 
     setHiddenExpressIDs((prev) => {
@@ -555,7 +580,7 @@ function App() {
       visibleFromSelection.forEach((id) => next.delete(id));
       return next;
     });
-  }, [clearProjectTreeSelection, projectTreeIndex, selectedProjectExpressID, selectedProjectExpressIDs]);
+  }, [clearProjectTreeSelection, projectTreeIndex, selectedProjectExpressID, selectedProjectExpressIDs, toRenderableExpressIDSet]);
 
   const handleIsolateExpandToParentScope = useCallback((expressID: number) => {
     if (!projectTreeIndex) return;
@@ -563,14 +588,19 @@ function App() {
     const parentID = projectTreeIndex.parentByExpressID.get(expressID);
     const scopeRootID = parentID ?? expressID;
     const scopeIDs = collectSubtreeExpressIDs(scopeRootID, projectTreeIndex);
-    setVisibleExpressIDs(new Set(scopeIDs));
+    setVisibleExpressIDs(toRenderableExpressIDSet(scopeIDs));
+    setHiddenExpressIDs((prev) => {
+      const next = new Set(prev);
+      scopeIDs.forEach((id) => next.delete(id));
+      return next;
+    });
     setSelectedProjectExpressID(expressID);
     setSelectedProjectExpressIDs(new Set([expressID]));
 
     if (alwaysFitEnabled && window.fitToExpressIDs) {
       window.fitToExpressIDs(scopeIDs);
     }
-  }, [alwaysFitEnabled, projectTreeIndex]);
+  }, [alwaysFitEnabled, projectTreeIndex, toRenderableExpressIDSet]);
 
   const handleIsolateButtonDoubleClick = useCallback(() => {
     const sourceExpressID = selectedProjectExpressID ?? elementInfo?.expressID ?? window.getHighlightedExpressID?.() ?? null;

@@ -5,6 +5,7 @@ import {
   ArcRotateCamera,
   HemisphericLight,
   Matrix,
+  TransformNode,
   Vector3,
   Color3,
   Color4,
@@ -17,6 +18,7 @@ import type { PickMode, SectionAxis } from "../types/app";
 import {
   createIfcLoader,
   buildIfcModel,
+  createFilteredMeshFromSourceMesh,
   disposeIfcModel,
   getModelBounds,
 } from "../loader";
@@ -258,6 +260,17 @@ function buildDimensionsMapFromBounds(
   return map;
 }
 
+function syncTransformNode(source: TransformNode, target: TransformNode): void {
+  target.position.copyFrom(source.position);
+  if (source.rotationQuaternion) {
+    target.rotationQuaternion = source.rotationQuaternion.clone();
+  } else {
+    target.rotation.copyFrom(source.rotation);
+  }
+  target.scaling.copyFrom(source.scaling);
+  target.computeWorldMatrix(true);
+}
+
 function readIfcMaterials(materials: IfcMaterialInfoResult[], meshes: Scene["meshes"]): IfcMaterialInfo[] {
   const meshColorByExpressID = new Map<number, string>();
   meshes.forEach((mesh) => {
@@ -296,6 +309,8 @@ function BabylonScene({
   const sceneRef = useRef<Scene | null>(null);
   const loaderRef = useRef<IfcLoader | null>(null);
   const modelRef = useRef<PreparedIfcModel | null>(null);
+  const baseRootRef = useRef<TransformNode | null>(null);
+  const filteredRootRef = useRef<TransformNode | null>(null);
   const sceneInstrumentationRef = useRef<SceneInstrumentation | null>(null);
   const pickingManagerRef = useRef<PickingManager | null>(null);
   const savedViewRef = useRef<CameraViewSnapshot | null>(null);
@@ -304,9 +319,59 @@ function BabylonScene({
   const onModelLoadedRef = useRef<typeof onModelLoaded>(onModelLoaded);
   const onSceneStatsUpdateRef = useRef<typeof onSceneStatsUpdate>(onSceneStatsUpdate);
   const onElementPickedRef = useRef<typeof onElementPicked>(onElementPicked);
+  const sceneBackgroundColorRef = useRef(sceneBackgroundColor);
   const [isLoading, setIsLoading] = useState(false);
 const [error, setError] = useState<string | null>(null);
 const [ifcReady, setIfcReady] = useState(false);
+
+  const disposeFilteredRoot = useCallback(() => {
+    const root = filteredRootRef.current;
+    if (!root) return;
+    root.getChildMeshes().forEach((mesh) => {
+      mesh.dispose(false, false);
+    });
+    root.dispose();
+    filteredRootRef.current = null;
+  }, []);
+
+  const buildFilteredRoot = useCallback(
+    (selectedExpressIDs: ReadonlySet<number>): number => {
+      const scene = sceneRef.current;
+      const baseRoot = baseRootRef.current;
+      if (!scene || !baseRoot) return 0;
+
+      disposeFilteredRoot();
+
+      const filteredRoot = new TransformNode("ifc-filter-root", scene);
+      syncTransformNode(baseRoot, filteredRoot);
+
+      let createdMeshCount = 0;
+      baseRoot.getChildMeshes().forEach((sourceMesh) => {
+        const overlayMetadata = sourceMesh.metadata as { isOverlay?: unknown } | null;
+        if (overlayMetadata?.isOverlay === true) return;
+
+        const filteredMesh = createFilteredMeshFromSourceMesh(sourceMesh, selectedExpressIDs);
+        if (!filteredMesh) return;
+
+        filteredMesh.parent = filteredRoot;
+        filteredMesh.material = sourceMesh.material;
+        filteredMesh.isPickable = sourceMesh.isPickable;
+        filteredMesh.visibility = sourceMesh.visibility;
+        filteredMesh.renderingGroupId = sourceMesh.renderingGroupId;
+        createdMeshCount += 1;
+      });
+
+      if (createdMeshCount === 0) {
+        filteredRoot.dispose();
+        return 0;
+      }
+
+      filteredRoot.computeWorldMatrix(true);
+      filteredRootRef.current = filteredRoot;
+      return createdMeshCount;
+    },
+    [disposeFilteredRoot],
+  );
 
   useEffect(() => {
     onModelLoadedRef.current = onModelLoaded;
@@ -319,6 +384,10 @@ const [ifcReady, setIfcReady] = useState(false);
   useEffect(() => {
     onElementPickedRef.current = onElementPicked;
   }, [onElementPicked]);
+
+  useEffect(() => {
+    sceneBackgroundColorRef.current = sceneBackgroundColor;
+  }, [sceneBackgroundColor]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -345,35 +414,73 @@ const [ifcReady, setIfcReady] = useState(false);
 
 // Effect to show/hide meshes based on project tree subtree selection
   useEffect(() => {
-    if (!sceneRef.current) return;
+    const scene = sceneRef.current;
+    const baseRoot = baseRootRef.current;
+    if (!scene || !baseRoot) return;
+    const effectiveHiddenExpressIDs = hiddenExpressIDs ?? new Set<number>();
 
-    const meshes = sceneRef.current.meshes;
+    // Reset transient pick overlays so they do not reference disposed or hidden roots.
+    pickingManagerRef.current?.clearHighlight();
+
+    const hasSelectionFilter = visibleExpressIDs !== null;
+    const hasHiddenFilter = effectiveHiddenExpressIDs.size > 0;
+
+    if (hasSelectionFilter || hasHiddenFilter) {
+      const selectedRenderableIDs = new Set<number>();
+
+      if (visibleExpressIDs) {
+        visibleExpressIDs.forEach((expressID) => {
+          if (!effectiveHiddenExpressIDs.has(expressID) && elementBoundsRef.current.has(expressID)) {
+            selectedRenderableIDs.add(expressID);
+          }
+        });
+      } else {
+        elementBoundsRef.current.forEach((_, expressID) => {
+          if (!effectiveHiddenExpressIDs.has(expressID)) {
+            selectedRenderableIDs.add(expressID);
+          }
+        });
+      }
+
+      baseRoot.setEnabled(false);
+
+      if (selectedRenderableIDs.size === 0) {
+        disposeFilteredRoot();
+        console.log("Spatial filter: no renderable elements remain after filtering");
+        return;
+      }
+
+      const filteredMeshCount = buildFilteredRoot(selectedRenderableIDs);
+      console.log(
+        `Spatial filter: filtered root rebuilt (${filteredMeshCount} meshes for ${selectedRenderableIDs.size} visible elements)`,
+      );
+      return;
+    }
+
+    disposeFilteredRoot();
+    baseRoot.setEnabled(true);
+
     let visibleCount = 0;
     let hiddenCount = 0;
 
-    meshes.forEach((mesh) => {
+    baseRoot.getChildMeshes().forEach((mesh) => {
       const overlayMetadata = mesh.metadata as { isOverlay?: unknown } | null;
       if (overlayMetadata?.isOverlay === true) return;
       const meshExpressIDs = getMeshElementExpressIDs(mesh);
-      const passesIsolateFilter =
-        visibleExpressIDs && meshExpressIDs.length > 0 ? meshExpressIDs.some((expressID) => visibleExpressIDs.has(expressID)) : true;
       const notHidden =
-        meshExpressIDs.length > 0 ? meshExpressIDs.some((expressID) => !hiddenExpressIDs?.has(expressID)) : true;
-      const shouldShow = passesIsolateFilter && notHidden;
-      mesh.isVisible = shouldShow;
-      mesh.setEnabled(shouldShow);
+        meshExpressIDs.length > 0 ? meshExpressIDs.some((expressID) => !effectiveHiddenExpressIDs.has(expressID)) : true;
+      mesh.isVisible = notHidden;
+      mesh.setEnabled(notHidden);
 
-      if (shouldShow) {
+      if (notHidden) {
         visibleCount++;
       } else {
         hiddenCount++;
       }
     });
 
-    console.log(
-      `Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (project subtree: ${visibleExpressIDs ? visibleExpressIDs.size : "off"})`,
-    );
-  }, [hiddenExpressIDs, visibleExpressIDs]);
+    console.log(`Spatial filter: ${visibleCount} visible, ${hiddenCount} hidden (project subtree: off)`);
+  }, [buildFilteredRoot, disposeFilteredRoot, hiddenExpressIDs, visibleExpressIDs]);
 
   // Initialize engine and scene
   useEffect(() => {
@@ -395,6 +502,7 @@ const [ifcReady, setIfcReady] = useState(false);
 
       const scene = new Scene(engine)
       sceneRef.current = scene
+      scene.clearColor = toColor4(sceneBackgroundColorRef.current)
       sceneInstrumentationRef.current = new SceneInstrumentation(scene)
 
       // Create camera
@@ -487,6 +595,7 @@ const [ifcReady, setIfcReady] = useState(false);
       if (sceneRef.current) {
         disposeIfcModel(sceneRef.current)
       }
+      disposeFilteredRoot()
 
       if (pickingManagerRef.current) {
         pickingManagerRef.current.dispose()
@@ -506,6 +615,7 @@ const [ifcReady, setIfcReady] = useState(false);
         void loaderRef.current.dispose()
         loaderRef.current = null
       }
+      baseRootRef.current = null
       elementBoundsRef.current = new Map()
       modelRef.current = null
       
@@ -513,7 +623,7 @@ const [ifcReady, setIfcReady] = useState(false);
       engineRef.current = null
       sceneRef.current = null
     }
-  }, [])
+  }, [disposeFilteredRoot])
 
   useEffect(() => {
     if (!sceneRef.current) return;
@@ -540,12 +650,14 @@ const [ifcReady, setIfcReady] = useState(false);
       return;
     }
 
-    const firstMesh = scene.meshes.find((mesh) => meshContainsExpressID(mesh, measurePinnedFirstExpressID));
+    const firstMesh =
+      scene.meshes.find((mesh) => mesh.isEnabled() && mesh.isVisible && meshContainsExpressID(mesh, measurePinnedFirstExpressID)) ??
+      scene.meshes.find((mesh) => meshContainsExpressID(mesh, measurePinnedFirstExpressID));
     manager.setPersistentHighlight(firstMesh ?? null, measurePinnedFirstExpressID, {
       highlightColor: darkenColor(toColor3(highlightColor), 0.55),
       highlightAlpha: 0.38,
     });
-  }, [highlightColor, measurePinnedFirstExpressID, pickMode]);
+  }, [hiddenExpressIDs, highlightColor, measurePinnedFirstExpressID, pickMode, visibleExpressIDs]);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -749,6 +861,8 @@ const [ifcReady, setIfcReady] = useState(false);
       if (sceneRef.current) {
         disposeIfcModel(sceneRef.current)
       }
+      disposeFilteredRoot()
+      baseRootRef.current = null
       elementBoundsRef.current = new Map()
       
       // Close previous IFC model
@@ -775,7 +889,7 @@ const [ifcReady, setIfcReady] = useState(false);
         autoMergeStrategy: {
           lowMaxParts: 1500,
           mediumMaxParts: 5000,
-          lowMode: "by-express-color",
+          lowMode: "by-color",
           mediumMode: "by-color",
           highMode: "two-material",
         },
@@ -801,6 +915,7 @@ const [ifcReady, setIfcReady] = useState(false);
         freezeAfterBuild: true,
         usePBRMaterials: false,
       })
+      baseRootRef.current = rootNode
       rootNode.computeWorldMatrix(true)
       const boundsByExpressID = transformBoundsMap(model.boundsByExpressID, rootNode.getWorldMatrix())
       elementBoundsRef.current = boundsByExpressID
@@ -862,7 +977,7 @@ const [ifcReady, setIfcReady] = useState(false);
     } finally {
       setIsLoading(false)
     }
-  }, [highlightColor])
+  }, [disposeFilteredRoot, highlightColor])
 
   // Handle file input
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {

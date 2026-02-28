@@ -12,7 +12,7 @@ import type { ElementPickData } from "./utils/pickingUtils";
 import type { PickMode, SectionAxis, TabType } from "./types/app";
 import { collectSubtreeExpressIDs, type IfcProjectTreeIndex, type IfcProjectTreeNode } from "./utils/projectTreeUtils";
 import type { ElementInfoData } from "./types/elementInfo";
-import { buildElementInfoFromPick, buildElementInfoFromProjectNode } from "./utils/elementInfoUtils";
+import { buildElementInfoFromPick, buildElementInfoFromProjectNodeResult } from "./utils/elementInfoUtils";
 
 const STORAGE_KEYS = {
   sceneBackgroundColor: "viewer.sceneBackgroundColor",
@@ -462,16 +462,22 @@ function App() {
     if (modelData) {
       const primaryNode = projectTreeIndex.nodes.get(primaryExpressID) ?? node;
       const fallbackDimensions = modelData.dimensionsByExpressID.get(primaryNode.expressID);
-      setElementInfo(
-        buildElementInfoFromProjectNode(
-          modelData.ifcAPI,
-          modelData.modelID,
-          primaryNode,
-          projectTreeIndex,
-          fallbackDimensions,
-          { unitSymbol: modelData.lengthUnitSymbol },
-        ),
-      );
+      void modelData.loader
+        .getElementData(modelData.modelID, primaryNode.expressID)
+        .then((result) => {
+          setElementInfo(
+            buildElementInfoFromProjectNodeResult(
+              result,
+              primaryNode,
+              projectTreeIndex,
+              fallbackDimensions,
+              { unitSymbol: modelData.lengthUnitSymbol },
+            ),
+          );
+        })
+        .catch((error) => {
+          console.error("Failed to load project node element data:", error);
+        });
     }
     if (alwaysFitEnabled && window.fitToExpressIDs) {
       window.fitToExpressIDs(Array.from(subtreeIDs));
@@ -731,16 +737,22 @@ function App() {
       const node = projectTreeIndex.nodes.get(data.expressID);
       if (node) {
         const fallbackDimensions = modelData.dimensionsByExpressID.get(node.expressID);
-        setElementInfo(
-          buildElementInfoFromProjectNode(
-            modelData.ifcAPI,
-            modelData.modelID,
-            node,
-            projectTreeIndex,
-            fallbackDimensions,
-            { unitSymbol: modelData.lengthUnitSymbol },
-          ),
-        );
+        void modelData.loader
+          .getElementData(modelData.modelID, node.expressID)
+          .then((result) => {
+            setElementInfo(
+              buildElementInfoFromProjectNodeResult(
+                result,
+                node,
+                projectTreeIndex,
+                fallbackDimensions,
+                { unitSymbol: modelData.lengthUnitSymbol },
+              ),
+            );
+          })
+          .catch((error) => {
+            console.error("Failed to load selected project node data:", error);
+          });
         if (alwaysFitEnabled) {
           handleFitProjectNode(node);
         }

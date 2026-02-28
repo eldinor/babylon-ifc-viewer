@@ -1,7 +1,7 @@
-import * as WebIFC from "web-ifc";
 import type { IfcProjectTreeIndex, IfcProjectTreeNode } from "./projectTreeUtils";
 import type { ElementInfoData, ElementInfoField, RelatedElementItem } from "../types/elementInfo";
 import type { ElementPickData } from "./pickingUtils";
+import type { ElementDataResult } from "../loader";
 
 interface IfcLineLike {
   type?: number;
@@ -292,18 +292,15 @@ export function buildElementInfoFromPick(
   };
 }
 
-export function buildElementInfoFromProjectNode(
-  ifcAPI: WebIFC.IfcAPI,
-  modelID: number,
+function buildElementInfoFromProjectNodeLine(
+  line: IfcLineLike,
+  typeName: string,
   node: IfcProjectTreeNode,
   index: IfcProjectTreeIndex,
   fallbackDimensions?: ElementDimensionsFallback,
   options?: DimensionFieldOptions,
 ): ElementInfoData {
-  const line = (ifcAPI.GetLine(modelID, node.expressID, true) ?? {}) as IfcLineLike;
   const dimensions = extractIfcDimensions(line);
-  const typeName =
-    typeof line.type === "number" ? ifcAPI.GetNameFromTypeCode(line.type) : node.typeName || "Unknown";
   const parentID = index.parentByExpressID.get(node.expressID);
   const parentNode = parentID !== undefined ? index.nodes.get(parentID) : undefined;
   const containedElementsCount = node.childExpressIDs.reduce((count, childID) => {
@@ -334,4 +331,16 @@ export function buildElementInfoFromProjectNode(
     fields,
     relatedElements: createRelatedElementsFromIndex(node.expressID, index),
   };
+}
+
+export function buildElementInfoFromProjectNodeResult(
+  result: ElementDataResult,
+  node: IfcProjectTreeNode,
+  index: IfcProjectTreeIndex,
+  fallbackDimensions?: ElementDimensionsFallback,
+  options?: DimensionFieldOptions,
+): ElementInfoData {
+  const line = (result.element ?? {}) as IfcLineLike;
+  const typeName = result.typeName || node.typeName || "Unknown";
+  return buildElementInfoFromProjectNodeLine(line, typeName, node, index, fallbackDimensions, options);
 }

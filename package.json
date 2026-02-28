@@ -7,14 +7,15 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pack:loader": "npm pack ./packages/babylon-ifc-loader-local"
   },
   "dependencies": {
-    "@babylonjs/core": "^8.52.1",
+    "@babylonjs/core": "^8.53.0",
     "@babylonjs/serializers": "^8.53.0",
-    "babylon-ifc-loader": "^2.0.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "web-ifc": "^0.0.75"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

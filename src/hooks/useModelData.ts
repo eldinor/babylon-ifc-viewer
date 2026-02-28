@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
-import type { ProjectInfoResult } from "babylon-ifc-loader";
+import type { ProjectInfoResult } from "../loader";
 import type { IfcModelData } from "../components/BabylonScene";
-import { buildIfcProjectTreeIndex, type IfcProjectTreeIndex } from "../utils/projectTreeUtils";
+import type { IfcProjectTreeIndex } from "../utils/projectTreeUtils";
 
 interface UseModelDataResult {
   modelData: IfcModelData | null;
@@ -20,7 +20,7 @@ export function useModelData(onModelCleared?: () => void): UseModelDataResult {
       if (data) {
         setModelData(data);
         setProjectInfo(data.projectInfo);
-        setProjectTreeIndex(buildIfcProjectTreeIndex(data.ifcAPI, data.modelID));
+        setProjectTreeIndex(data.projectTreeIndex);
       } else {
         setModelData(null);
         setProjectInfo(null);

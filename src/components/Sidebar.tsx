@@ -3,7 +3,7 @@ import ProjectTab from "./sidebar/ProjectTab";
 import InfoTab from "./sidebar/InfoTab";
 import MaterialInfoTab from "./sidebar/MaterialInfoTab";
 import type { TabType } from "../types/app";
-import type { ProjectInfoResult } from "babylon-ifc-loader";
+import type { ProjectInfoResult } from "../loader";
 import type { IfcProjectTreeIndex, IfcProjectTreeNode } from "../utils/projectTreeUtils";
 import type { IfcMaterialInfo } from "./BabylonScene";
 

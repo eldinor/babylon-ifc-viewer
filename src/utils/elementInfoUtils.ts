@@ -154,8 +154,18 @@ function extractPlacementElevation(line: IfcLineLike): number | null {
   return extractNumber(coords[2]);
 }
 
-function getMeshBoundingDimensions(data: ElementPickData): ElementDimensions | null {
-  const boundingInfo = data.mesh.getBoundingInfo();
+function getElementBoundingDimensions(data: ElementPickData): ElementDimensions | null {
+  if (data.bounds) {
+    const length = data.bounds.maxX - data.bounds.minX;
+    const width = data.bounds.maxY - data.bounds.minY;
+    const height = data.bounds.maxZ - data.bounds.minZ;
+    const elevation = (data.bounds.minY + data.bounds.maxY) * 0.5;
+    if ([length, width, height, elevation].every(Number.isFinite)) {
+      return { length, width, height, elevation };
+    }
+  }
+
+  const boundingInfo = data.sourceMesh.getBoundingInfo();
   if (!boundingInfo) return null;
 
   const ext = boundingInfo.boundingBox.extendSizeWorld;
@@ -268,7 +278,7 @@ export function buildElementInfoFromPick(
 ): ElementInfoData {
   const line = (data.element ?? {}) as IfcLineLike;
   const semanticDimensions = extractIfcDimensions(line);
-  const bboxDimensions = getMeshBoundingDimensions(data);
+  const bboxDimensions = getElementBoundingDimensions(data);
   const fields: ElementInfoField[] = [];
 
   addField(fields, "Name", data.elementName);

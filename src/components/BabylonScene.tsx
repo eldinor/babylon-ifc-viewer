@@ -4,6 +4,7 @@ import {
   Scene,
   ArcRotateCamera,
   HemisphericLight,
+  Matrix,
   Vector3,
   Color3,
   Color4,
@@ -19,7 +20,7 @@ import {
   disposeIfcModel,
   getModelBounds,
 } from "../loader";
-import type { IfcLoader, IfcMaterialInfoResult, PreparedIfcModel, ProjectInfoResult } from "../loader";
+import type { IfcLoader, IfcMaterialInfoResult, PreparedIfcElementBounds, PreparedIfcModel, ProjectInfoResult } from "../loader";
 import { setupPickingHandler, type ElementPickData, type PickingManager } from "../utils/pickingUtils";
 import type { IfcProjectTreeIndex } from "../utils/projectTreeUtils";
 
@@ -36,6 +37,7 @@ export interface IfcModelData {
   ifcMaterials: IfcMaterialInfo[];
   loader: IfcLoader;
   projectTreeIndex: IfcProjectTreeIndex;
+  boundsByExpressID: Map<number, PreparedIfcElementBounds>;
   dimensionsByExpressID: Map<number, { length: number; width: number; height: number; elevation: number }>;
   lengthUnitSymbol: string;
   sourceFileName: string;
@@ -128,7 +130,8 @@ function extractMeshIfcColorHex(mesh: Scene["meshes"][number]): string | null {
 }
 
 function getMeshExpressID(mesh: Scene["meshes"][number]): number | null {
-  const metadata = mesh.metadata as { expressID?: unknown } | null;
+  const metadata = mesh.metadata as { expressID?: unknown; isOverlay?: unknown } | null;
+  if (metadata?.isOverlay === true) return null;
   return typeof metadata?.expressID === "number" && metadata.expressID >= 0 ? metadata.expressID : null;
 }
 
@@ -190,6 +193,71 @@ function buildAxisRanges(meshes: Scene["meshes"]) {
   };
 }
 
+function toDimensions(bounds: PreparedIfcElementBounds) {
+  return {
+    length: bounds.maxX - bounds.minX,
+    width: bounds.maxY - bounds.minY,
+    height: bounds.maxZ - bounds.minZ,
+    elevation: (bounds.minY + bounds.maxY) * 0.5,
+  };
+}
+
+function transformBounds(bounds: PreparedIfcElementBounds, matrix: Matrix): PreparedIfcElementBounds {
+  const corners = [
+    new Vector3(bounds.minX, bounds.minY, bounds.minZ),
+    new Vector3(bounds.minX, bounds.minY, bounds.maxZ),
+    new Vector3(bounds.minX, bounds.maxY, bounds.minZ),
+    new Vector3(bounds.minX, bounds.maxY, bounds.maxZ),
+    new Vector3(bounds.maxX, bounds.minY, bounds.minZ),
+    new Vector3(bounds.maxX, bounds.minY, bounds.maxZ),
+    new Vector3(bounds.maxX, bounds.maxY, bounds.minZ),
+    new Vector3(bounds.maxX, bounds.maxY, bounds.maxZ),
+  ];
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+
+  corners.forEach((corner) => {
+    const transformed = Vector3.TransformCoordinates(corner, matrix);
+    minX = Math.min(minX, transformed.x);
+    minY = Math.min(minY, transformed.y);
+    minZ = Math.min(minZ, transformed.z);
+    maxX = Math.max(maxX, transformed.x);
+    maxY = Math.max(maxY, transformed.y);
+    maxZ = Math.max(maxZ, transformed.z);
+  });
+
+  return { minX, minY, minZ, maxX, maxY, maxZ };
+}
+
+function transformBoundsMap(
+  boundsByExpressID: Map<number, PreparedIfcElementBounds>,
+  matrix: Matrix,
+): Map<number, PreparedIfcElementBounds> {
+  const transformed = new Map<number, PreparedIfcElementBounds>();
+  boundsByExpressID.forEach((bounds, expressID) => {
+    transformed.set(expressID, transformBounds(bounds, matrix));
+  });
+  return transformed;
+}
+
+function buildDimensionsMapFromBounds(
+  boundsByExpressID: Map<number, PreparedIfcElementBounds>,
+): Map<number, { length: number; width: number; height: number; elevation: number }> {
+  const map = new Map<number, { length: number; width: number; height: number; elevation: number }>();
+  boundsByExpressID.forEach((bounds, expressID) => {
+    const dimensions = toDimensions(bounds);
+    if ([dimensions.length, dimensions.width, dimensions.height, dimensions.elevation].every(Number.isFinite)) {
+      map.set(expressID, dimensions);
+    }
+  });
+  return map;
+}
+
 function readIfcMaterials(materials: IfcMaterialInfoResult[], meshes: Scene["meshes"]): IfcMaterialInfo[] {
   const meshColorByExpressID = new Map<number, string>();
   meshes.forEach((mesh) => {
@@ -231,6 +299,7 @@ function BabylonScene({
   const sceneInstrumentationRef = useRef<SceneInstrumentation | null>(null);
   const pickingManagerRef = useRef<PickingManager | null>(null);
   const savedViewRef = useRef<CameraViewSnapshot | null>(null);
+  const elementBoundsRef = useRef<Map<number, PreparedIfcElementBounds>>(new Map());
   const hasAutoLoadedSampleRef = useRef(false);
   const onModelLoadedRef = useRef<typeof onModelLoaded>(onModelLoaded);
   const onSceneStatsUpdateRef = useRef<typeof onSceneStatsUpdate>(onSceneStatsUpdate);
@@ -274,26 +343,6 @@ const [ifcReady, setIfcReady] = useState(false);
     };
   }, []);
 
-  const buildDimensionsMap = useCallback((meshes: Scene["meshes"]) => {
-    const map = new Map<number, { length: number; width: number; height: number; elevation: number }>();
-    meshes.forEach((mesh) => {
-      const expressID = getMeshExpressID(mesh);
-      if (expressID === null || map.has(expressID)) return;
-      const boundingInfo = mesh.getBoundingInfo();
-      if (!boundingInfo) return;
-      const ext = boundingInfo.boundingBox.extendSizeWorld;
-      const center = boundingInfo.boundingBox.centerWorld;
-      const length = ext.x * 2;
-      const width = ext.y * 2;
-      const height = ext.z * 2;
-      const elevation = center.y;
-      if ([length, width, height, elevation].every(Number.isFinite)) {
-        map.set(expressID, { length, width, height, elevation });
-      }
-    });
-    return map;
-  }, []);
-
 // Effect to show/hide meshes based on project tree subtree selection
   useEffect(() => {
     if (!sceneRef.current) return;
@@ -303,6 +352,8 @@ const [ifcReady, setIfcReady] = useState(false);
     let hiddenCount = 0;
 
     meshes.forEach((mesh) => {
+      const overlayMetadata = mesh.metadata as { isOverlay?: unknown } | null;
+      if (overlayMetadata?.isOverlay === true) return;
       const meshExpressIDs = getMeshElementExpressIDs(mesh);
       const passesIsolateFilter =
         visibleExpressIDs && meshExpressIDs.length > 0 ? meshExpressIDs.some((expressID) => visibleExpressIDs.has(expressID)) : true;
@@ -455,6 +506,7 @@ const [ifcReady, setIfcReady] = useState(false);
         void loaderRef.current.dispose()
         loaderRef.current = null
       }
+      elementBoundsRef.current = new Map()
       modelRef.current = null
       
       engineRef.current?.dispose()
@@ -489,7 +541,7 @@ const [ifcReady, setIfcReady] = useState(false);
     }
 
     const firstMesh = scene.meshes.find((mesh) => meshContainsExpressID(mesh, measurePinnedFirstExpressID));
-    manager.setPersistentHighlight(firstMesh ?? null, {
+    manager.setPersistentHighlight(firstMesh ?? null, measurePinnedFirstExpressID, {
       highlightColor: darkenColor(toColor3(highlightColor), 0.55),
       highlightAlpha: 0.38,
     });
@@ -538,21 +590,35 @@ const [ifcReady, setIfcReady] = useState(false);
     let maxZ = Number.NEGATIVE_INFINITY;
     let hasBounds = false;
 
-    scene.meshes.forEach((mesh) => {
-      const meshExpressIDs = getMeshElementExpressIDs(mesh);
-      if (meshExpressIDs.length === 0 || !meshExpressIDs.some((expressID) => targetIDs.has(expressID))) return;
-      const boundingInfo = mesh.getBoundingInfo();
-      if (!boundingInfo) return;
-      const min = boundingInfo.boundingBox.minimumWorld;
-      const max = boundingInfo.boundingBox.maximumWorld;
-      minX = Math.min(minX, min.x);
-      minY = Math.min(minY, min.y);
-      minZ = Math.min(minZ, min.z);
-      maxX = Math.max(maxX, max.x);
-      maxY = Math.max(maxY, max.y);
-      maxZ = Math.max(maxZ, max.z);
+    targetIDs.forEach((expressID) => {
+      const bounds = elementBoundsRef.current.get(expressID);
+      if (!bounds) return;
+      minX = Math.min(minX, bounds.minX);
+      minY = Math.min(minY, bounds.minY);
+      minZ = Math.min(minZ, bounds.minZ);
+      maxX = Math.max(maxX, bounds.maxX);
+      maxY = Math.max(maxY, bounds.maxY);
+      maxZ = Math.max(maxZ, bounds.maxZ);
       hasBounds = true;
     });
+
+    if (!hasBounds) {
+      scene.meshes.forEach((mesh) => {
+        const meshExpressIDs = getMeshElementExpressIDs(mesh);
+        if (meshExpressIDs.length === 0 || !meshExpressIDs.some((expressID) => targetIDs.has(expressID))) return;
+        const boundingInfo = mesh.getBoundingInfo();
+        if (!boundingInfo) return;
+        const min = boundingInfo.boundingBox.minimumWorld;
+        const max = boundingInfo.boundingBox.maximumWorld;
+        minX = Math.min(minX, min.x);
+        minY = Math.min(minY, min.y);
+        minZ = Math.min(minZ, min.z);
+        maxX = Math.max(maxX, max.x);
+        maxY = Math.max(maxY, max.y);
+        maxZ = Math.max(maxZ, max.z);
+        hasBounds = true;
+      });
+    }
 
     if (!hasBounds) return;
     const center = new Vector3((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
@@ -683,6 +749,7 @@ const [ifcReady, setIfcReady] = useState(false);
       if (sceneRef.current) {
         disposeIfcModel(sceneRef.current)
       }
+      elementBoundsRef.current = new Map()
       
       // Close previous IFC model
       if (modelRef.current && loaderRef.current && modelRef.current.modelID >= 0) {
@@ -725,15 +792,18 @@ const [ifcReady, setIfcReady] = useState(false);
 
       // Build Babylon.js scene (materials handled by babylon-ifc-loader)
       const currentScene = sceneRef.current
-      const { meshes } = buildIfcModel(model, currentScene, {
+      const { meshes, rootNode } = buildIfcModel(model, currentScene, {
         autoCenter: true,
         mergeMeshes: true,
         doubleSided: true,
         generateNormals: false,
         verbose: false,
         freezeAfterBuild: true,
-        usePBRMaterials: true,
+        usePBRMaterials: false,
       })
+      rootNode.computeWorldMatrix(true)
+      const boundsByExpressID = transformBoundsMap(model.boundsByExpressID, rootNode.getWorldMatrix())
+      elementBoundsRef.current = boundsByExpressID
 
       // Position camera to fit model
       const bounds = getModelBounds(meshes)
@@ -747,7 +817,7 @@ const [ifcReady, setIfcReady] = useState(false);
 
       // Notify parent component with metadata returned from the worker-owned IFC model.
       if (onModelLoadedRef.current && loaderRef.current) {
-        const dimensionsByExpressID = buildDimensionsMap(meshes);
+        const dimensionsByExpressID = buildDimensionsMapFromBounds(boundsByExpressID);
         onModelLoadedRef.current({
           projectInfo,
           modelID: model.modelID,
@@ -758,6 +828,7 @@ const [ifcReady, setIfcReady] = useState(false);
           ifcMaterials: readIfcMaterials(modelMetadata.ifcMaterials, meshes),
           loader: loaderRef.current,
           projectTreeIndex: modelMetadata.projectTreeIndex,
+          boundsByExpressID,
           dimensionsByExpressID,
           lengthUnitSymbol: modelMetadata.lengthUnit.symbol,
           sourceFileName,
@@ -772,7 +843,8 @@ const [ifcReady, setIfcReady] = useState(false);
           highlightColor: toColor3(highlightColor),
           onElementPicked: (data) => {
             if (onElementPickedRef.current) {
-              onElementPickedRef.current(data);
+              const pickBounds = elementBoundsRef.current.get(data.expressID);
+              onElementPickedRef.current(pickBounds ? { ...data, bounds: pickBounds } : data);
             }
             console.log("Picked element:", data);
           },
@@ -790,7 +862,7 @@ const [ifcReady, setIfcReady] = useState(false);
     } finally {
       setIsLoading(false)
     }
-  }, [buildDimensionsMap, highlightColor])
+  }, [highlightColor])
 
   // Handle file input
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {

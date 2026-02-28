@@ -94,7 +94,16 @@ function formatFooterMemory(memoryMb: number | null): string {
 }
 
 function getPickedCenter(data: ElementPickData): { x: number; y: number; z: number } | null {
-  const center = data.mesh.getBoundingInfo()?.boundingBox.centerWorld;
+  if (data.bounds) {
+    const x = (data.bounds.minX + data.bounds.maxX) * 0.5;
+    const y = (data.bounds.minY + data.bounds.maxY) * 0.5;
+    const z = (data.bounds.minZ + data.bounds.maxZ) * 0.5;
+    if ([x, y, z].every(Number.isFinite)) {
+      return { x, y, z };
+    }
+  }
+
+  const center = data.sourceMesh.getBoundingInfo()?.boundingBox.centerWorld;
   if (!center) return null;
   if (![center.x, center.y, center.z].every(Number.isFinite)) return null;
   return { x: center.x, y: center.y, z: center.z };

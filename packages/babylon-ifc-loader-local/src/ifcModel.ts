@@ -2,6 +2,7 @@ import {
   Scene,
   Mesh,
   VertexData,
+  VertexBuffer,
   Matrix,
   AbstractMesh,
   TransformNode,
@@ -573,6 +574,92 @@ export function resolveExpressIDFromMeshPick(mesh: AbstractMesh, faceId: number 
   return resolveExpressIDFromRanges(ranges, faceId);
 }
 
+export function createElementOverlayMesh(sourceMesh: AbstractMesh, expressID: number): Mesh | null {
+  if (!(sourceMesh instanceof Mesh)) {
+    return null;
+  }
+  if (!isPreparedMeshMetadata(sourceMesh.metadata)) {
+    return null;
+  }
+
+  const positions = sourceMesh.getVerticesData(VertexBuffer.PositionKind);
+  const indices = sourceMesh.getIndices();
+  if (!positions || !indices || positions.length === 0 || indices.length === 0) {
+    return null;
+  }
+
+  const normals = sourceMesh.getVerticesData(VertexBuffer.NormalKind);
+  const ranges = getRangesForExpressID(sourceMesh.metadata, indices.length / 3, expressID);
+  if (!ranges || ranges.length === 0) {
+    return null;
+  }
+
+  const nextPositions: number[] = [];
+  const nextNormals: number[] | null = normals && normals.length === positions.length ? [] : null;
+  const nextIndices: number[] = [];
+  const vertexMap = new Map<number, number>();
+
+  for (const range of ranges) {
+    const triangleEnd = range.triangleStart + range.triangleCount;
+    for (let triangleIndex = range.triangleStart; triangleIndex < triangleEnd; triangleIndex++) {
+      const baseIndex = triangleIndex * 3;
+      for (let i = 0; i < 3; i += 1) {
+        const sourceVertexIndex = indices[baseIndex + i];
+        let targetVertexIndex = vertexMap.get(sourceVertexIndex);
+        if (targetVertexIndex === undefined) {
+          targetVertexIndex = nextPositions.length / 3;
+          vertexMap.set(sourceVertexIndex, targetVertexIndex);
+          const positionOffset = sourceVertexIndex * 3;
+          nextPositions.push(
+            positions[positionOffset],
+            positions[positionOffset + 1],
+            positions[positionOffset + 2],
+          );
+          if (nextNormals) {
+            nextNormals.push(
+              normals![positionOffset],
+              normals![positionOffset + 1],
+              normals![positionOffset + 2],
+            );
+          }
+        }
+        nextIndices.push(targetVertexIndex);
+      }
+    }
+  }
+
+  if (nextPositions.length === 0 || nextIndices.length === 0) {
+    return null;
+  }
+
+  const overlayMesh = new Mesh(`${sourceMesh.name}-overlay-${expressID}`, sourceMesh.getScene());
+  overlayMesh.parent = sourceMesh.parent;
+  overlayMesh.position.copyFrom(sourceMesh.position);
+  if (sourceMesh.rotationQuaternion) {
+    overlayMesh.rotationQuaternion = sourceMesh.rotationQuaternion.clone();
+  } else {
+    overlayMesh.rotation.copyFrom(sourceMesh.rotation);
+  }
+  overlayMesh.scaling.copyFrom(sourceMesh.scaling);
+  overlayMesh.renderingGroupId = sourceMesh.renderingGroupId;
+  overlayMesh.isPickable = false;
+  overlayMesh.metadata = {
+    expressID,
+    modelID: sourceMesh.metadata.modelID,
+    isOverlay: true,
+  };
+
+  const vertexData = new VertexData();
+  vertexData.positions = nextPositions;
+  vertexData.indices = nextIndices;
+  if (nextNormals) {
+    vertexData.normals = nextNormals;
+  }
+  vertexData.applyToMesh(overlayMesh);
+  overlayMesh.refreshBoundingInfo(true);
+  return overlayMesh;
+}
+
 function resolveExpressIDFromRanges(ranges: PreparedIfcElementRange[], faceId: number): number | null {
   let low = 0;
   let high = ranges.length - 1;
@@ -594,6 +681,27 @@ function resolveExpressIDFromRanges(ranges: PreparedIfcElementRange[], faceId: n
   }
 
   return null;
+}
+
+function getRangesForExpressID(
+  metadata: IfcPreparedMeshMetadata,
+  totalTriangleCount: number,
+  expressID: number,
+): PreparedIfcElementRange[] | null {
+  if (metadata.expressID >= 0) {
+    return metadata.expressID === expressID
+      ? [
+          {
+            triangleStart: 0,
+            triangleCount: totalTriangleCount,
+            expressID,
+          },
+        ]
+      : null;
+  }
+
+  const ranges = metadata.elementRanges?.filter((range) => range.expressID === expressID) ?? [];
+  return ranges.length > 0 ? ranges : null;
 }
 
 function areAllNormalsZero(normals: Float32Array): boolean {

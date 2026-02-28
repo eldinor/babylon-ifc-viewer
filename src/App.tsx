@@ -9,7 +9,7 @@ import Sidebar from "./components/Sidebar";
 import KeyboardShortcuts from "./components/KeyboardShortcuts";
 import { useModelData } from "./hooks/useModelData";
 import type { ElementPickData } from "./utils/pickingUtils";
-import type { PickMode, SectionAxis, TabType } from "./types/app";
+import type { MergePreset, PickMode, SectionAxis, TabType } from "./types/app";
 import { collectSubtreeExpressIDs, type IfcProjectTreeIndex, type IfcProjectTreeNode } from "./utils/projectTreeUtils";
 import type { ElementInfoData } from "./types/elementInfo";
 import { buildElementInfoFromPick, buildElementInfoFromProjectNodeResult } from "./utils/elementInfoUtils";
@@ -23,6 +23,9 @@ const STORAGE_KEYS = {
   recentIfcFiles: "viewer.recentIfcFiles",
   showRelatedElements: "viewer.showRelatedElements",
   showMaterialElementsMode: "viewer.showMaterialElementsMode",
+  mergePreset: "viewer.mergePreset",
+  largeModelThreshold: "viewer.largeModelThreshold",
+  meshChunkSize: "viewer.meshChunkSize",
 } as const;
 
 const SESSION_KEYS = {
@@ -34,6 +37,9 @@ const SESSION_KEYS = {
 
 const DEFAULT_SCENE_BACKGROUND = "#18003d";
 const DEFAULT_HIGHLIGHT = "#008080";
+const DEFAULT_MERGE_PRESET: MergePreset = "balanced";
+const DEFAULT_LARGE_MODEL_THRESHOLD = 45000;
+const DEFAULT_MESH_CHUNK_SIZE = 200000;
 const MAX_RECENT_IFC_FILES = 8;
 const PUBLIC_IFC_SAMPLES = ["sample.ifc", "Ifc4_SampleHouse.ifc", "institute.ifc", "test.ifc"] as const;
 
@@ -54,11 +60,23 @@ function isPickMode(value: string | null): value is PickMode {
   return value === "select" || value === "isolate" || value === "measure" || value === "inspect" || value === "explore";
 }
 
+function isMergePreset(value: string | null): value is MergePreset {
+  return value === "hybrid" || value === "balanced" || value === "aggressive";
+}
+
 function readStorageBool(key: string, fallback: boolean): boolean {
   const value = localStorage.getItem(key);
   if (value === "1") return true;
   if (value === "0") return false;
   return fallback;
+}
+
+function readStorageInt(key: string, fallback: number, min: number, max: number): number {
+  const value = localStorage.getItem(key);
+  if (value === null) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(parsed)));
 }
 
 function readSessionBool(key: string, fallback: boolean): boolean {
@@ -199,6 +217,16 @@ function App() {
     const stored = localStorage.getItem(STORAGE_KEYS.highlightColor);
     return isHexColor(stored) ? stored : DEFAULT_HIGHLIGHT;
   });
+  const [mergePreset, setMergePreset] = useState<MergePreset>(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.mergePreset);
+    return isMergePreset(stored) ? stored : DEFAULT_MERGE_PRESET;
+  });
+  const [largeModelThreshold, setLargeModelThreshold] = useState<number>(() =>
+    readStorageInt(STORAGE_KEYS.largeModelThreshold, DEFAULT_LARGE_MODEL_THRESHOLD, 1501, 250000),
+  );
+  const [meshChunkSize, setMeshChunkSize] = useState<number>(() =>
+    readStorageInt(STORAGE_KEYS.meshChunkSize, DEFAULT_MESH_CHUNK_SIZE, 10000, 1000000),
+  );
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [relatedPanelDismissed, setRelatedPanelDismissed] = useState(false);
   const [showRelatedElements, setShowRelatedElements] = useState<boolean>(() =>
@@ -308,9 +336,26 @@ function App() {
     setHighlightColor(color);
   }, []);
 
+  const handleMergePresetChange = useCallback((preset: MergePreset) => {
+    setMergePreset(preset);
+  }, []);
+
+  const handleLargeModelThresholdChange = useCallback((value: number) => {
+    if (!Number.isFinite(value)) return;
+    setLargeModelThreshold(Math.max(1501, Math.min(250000, Math.round(value))));
+  }, []);
+
+  const handleMeshChunkSizeChange = useCallback((value: number) => {
+    if (!Number.isFinite(value)) return;
+    setMeshChunkSize(Math.max(10000, Math.min(1000000, Math.round(value))));
+  }, []);
+
   const handleClearUserSettings = useCallback(() => {
     setSceneBackgroundColor(DEFAULT_SCENE_BACKGROUND);
     setHighlightColor(DEFAULT_HIGHLIGHT);
+    setMergePreset(DEFAULT_MERGE_PRESET);
+    setLargeModelThreshold(DEFAULT_LARGE_MODEL_THRESHOLD);
+    setMeshChunkSize(DEFAULT_MESH_CHUNK_SIZE);
     setPickMode("select");
     setAlwaysFitEnabled(false);
     setShowRelatedElements(true);
@@ -323,6 +368,9 @@ function App() {
     localStorage.removeItem(STORAGE_KEYS.showRelatedElements);
     localStorage.removeItem(STORAGE_KEYS.showMaterialElementsMode);
     localStorage.removeItem(STORAGE_KEYS.sidebarCollapsed);
+    localStorage.removeItem(STORAGE_KEYS.mergePreset);
+    localStorage.removeItem(STORAGE_KEYS.largeModelThreshold);
+    localStorage.removeItem(STORAGE_KEYS.meshChunkSize);
     setSectionEnabled(false);
     setSectionAxis("y");
     setSectionPercent(50);
@@ -828,6 +876,18 @@ function App() {
   }, [highlightColor]);
 
   useLayoutEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.mergePreset, mergePreset);
+  }, [mergePreset]);
+
+  useLayoutEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.largeModelThreshold, String(largeModelThreshold));
+  }, [largeModelThreshold]);
+
+  useLayoutEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.meshChunkSize, String(meshChunkSize));
+  }, [meshChunkSize]);
+
+  useLayoutEffect(() => {
     localStorage.setItem(STORAGE_KEYS.pickMode, pickMode);
   }, [pickMode]);
 
@@ -1009,6 +1069,12 @@ function App() {
         highlightColor={highlightColor}
         onSceneBackgroundColorChange={handleSceneBackgroundColorChange}
         onHighlightColorChange={handleHighlightColorChange}
+        mergePreset={mergePreset}
+        largeModelThreshold={largeModelThreshold}
+        meshChunkSize={meshChunkSize}
+        onMergePresetChange={handleMergePresetChange}
+        onLargeModelThresholdChange={handleLargeModelThresholdChange}
+        onMeshChunkSizeChange={handleMeshChunkSizeChange}
         showRelatedElements={showRelatedElements}
         onShowRelatedElementsChange={setShowRelatedElements}
         onClearUserSettings={handleClearUserSettings}
@@ -1073,6 +1139,9 @@ function App() {
             onElementPicked={handleElementPicked}
             sceneBackgroundColor={sceneBackgroundColor}
             highlightColor={highlightColor}
+            mergePreset={mergePreset}
+            largeModelThreshold={largeModelThreshold}
+            meshChunkSize={meshChunkSize}
             sectionState={{ enabled: sectionEnabled, axis: sectionAxis, position: sectionPosition, inverted: sectionInverted }}
             pickMode={pickMode}
             pickingEnabled={pickMode !== "explore"}

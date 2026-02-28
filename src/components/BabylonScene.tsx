@@ -14,7 +14,7 @@ import {
 } from "@babylonjs/core";
 import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstrumentation";
 import { GLTF2Export } from "@babylonjs/serializers/glTF/2.0/glTFSerializer";
-import type { PickMode, SectionAxis } from "../types/app";
+import type { MergePreset, PickMode, SectionAxis } from "../types/app";
 import {
   createIfcLoader,
   buildIfcModel,
@@ -75,6 +75,9 @@ interface BabylonSceneProps {
   onElementPicked?: (data: ElementPickData | null) => void;
   sceneBackgroundColor?: string;
   highlightColor?: string;
+  mergePreset?: MergePreset;
+  largeModelThreshold?: number;
+  meshChunkSize?: number;
   sectionState?: { enabled: boolean; axis: SectionAxis; position: number | null; inverted: boolean };
   pickMode?: PickMode;
   pickingEnabled?: boolean;
@@ -92,6 +95,40 @@ function toColor3(hex: string): Color3 {
 function darkenColor(color: Color3, factor: number): Color3 {
   const clamped = Math.max(0, Math.min(1, factor));
   return new Color3(color.r * clamped, color.g * clamped, color.b * clamped);
+}
+
+function resolveAutoMergeStrategy(mergePreset: MergePreset, largeModelThreshold: number) {
+  switch (mergePreset) {
+    case "hybrid":
+      return {
+        lowMaxParts: 1500,
+        mediumMaxParts: largeModelThreshold,
+        lowMode: "by-express-color" as const,
+        mediumMode: "by-color" as const,
+        highMode: "two-material" as const,
+      };
+    case "aggressive":
+      return {
+        lowMaxParts: 1500,
+        mediumMaxParts: largeModelThreshold,
+        lowMode: "by-color" as const,
+        mediumMode: "two-material" as const,
+        highMode: "two-material" as const,
+      };
+    case "balanced":
+    default:
+      return {
+        lowMaxParts: 1500,
+        mediumMaxParts: largeModelThreshold,
+        lowMode: "by-color" as const,
+        mediumMode: "by-color" as const,
+        highMode: "two-material" as const,
+      };
+  }
+}
+
+function resolveMaxVerticesPerMesh(meshChunkSize: number): number {
+  return Math.max(3, Math.floor(meshChunkSize * 1.5));
 }
 
 interface CameraViewSnapshot {
@@ -299,6 +336,9 @@ function BabylonScene({
   onElementPicked,
   sceneBackgroundColor = "#1b043e",
   highlightColor = "#008080",
+  mergePreset = "balanced",
+  largeModelThreshold = 45000,
+  meshChunkSize = 200000,
   sectionState,
   pickMode = "select",
   pickingEnabled = true,
@@ -884,15 +924,9 @@ const [ifcReady, setIfcReady] = useState(false);
       }, {
         generateNormals: false,
         includeElementMap: true,
-        maxTrianglesPerMesh: 200000,
-        maxVerticesPerMesh: 300000,
-        autoMergeStrategy: {
-          lowMaxParts: 1500,
-          mediumMaxParts: 5000,
-          lowMode: "by-color",
-          mediumMode: "by-color",
-          highMode: "two-material",
-        },
+        maxTrianglesPerMesh: meshChunkSize,
+        maxVerticesPerMesh: resolveMaxVerticesPerMesh(meshChunkSize),
+        autoMergeStrategy: resolveAutoMergeStrategy(mergePreset, largeModelThreshold),
       })
       if (model.modelID < 0) {
         throw new Error('Prepared IFC model is not open for interactive queries')
@@ -977,7 +1011,7 @@ const [ifcReady, setIfcReady] = useState(false);
     } finally {
       setIsLoading(false)
     }
-  }, [disposeFilteredRoot, highlightColor])
+  }, [disposeFilteredRoot, highlightColor, largeModelThreshold, mergePreset, meshChunkSize])
 
   // Handle file input
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
